@@ -1,14 +1,10 @@
-// use std::env::args;
+use clap::clap_app;
 use std::error;
 use std::fmt;
-
-use clap::clap_app;
-// use clap::{App, Arg};
+use ultra_nrepl::nrepl;
 
 #[derive(Debug)]
 enum OptsParseError {
-    // PortNotSpecified,
-    // OpNotSpecified,
     BadOpArg(String),
     BadUserInput(String),
 }
@@ -19,8 +15,6 @@ impl fmt::Display for OptsParseError {
             f,
             "OptsParseError: {}",
             match self {
-                // OptsParseError::PortNotSpecified => "Port was not specified".to_string(),
-                // OptsParseError::OpNotSpecified => "OP was not specified".to_string(),
                 OptsParseError::BadOpArg(op_arg) => format!("Bad op arg: {}", op_arg),
                 OptsParseError::BadUserInput(msg) => format!("Bad user input: {}", msg),
             }
@@ -97,6 +91,17 @@ impl Opts {
 }
 
 fn main() {
-    let opts = Opts::parse();
-    println!("{:?}", opts);
+    match Opts::parse() {
+        Ok(opts) => {
+            let addr: std::net::SocketAddr = format!("127.0.0.1:{}", opts.port).parse().unwrap();
+
+            let nrepl_conn = nrepl::NreplStream::connect_timeout(&addr).unwrap();
+            let op = nrepl::Op::new(opts.op, opts.op_args);
+
+            nrepl_conn.send_op(&op).unwrap();
+            let resp = nrepl_conn.read_resp().unwrap();
+            println!("Nrepl resp: {}", nrepl::to_json_string(&resp).unwrap());
+        }
+        Err(e) => eprintln!("Parse error: {}", e),
+    }
 }
