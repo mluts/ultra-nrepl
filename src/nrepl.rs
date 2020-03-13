@@ -71,10 +71,18 @@ impl ToBencode for Op {
 
     fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BError> {
         encoder.emit_dict(|mut e| {
-            e.emit_pair(b"op", &self.name)?;
+            let mut pairs: Vec<(&str, &str)> = vec![];
+
+            pairs.push(("op", &self.name));
 
             for (argname, argval) in self.args.iter() {
-                e.emit_pair(&argname.clone().into_bytes(), argval)?
+                pairs.push((argname, argval));
+            }
+
+            pairs.sort();
+
+            for (argname, argval) in pairs.into_iter() {
+                e.emit_pair(&argname.clone().as_bytes(), argval)?;
             }
 
             Ok(())
