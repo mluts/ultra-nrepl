@@ -95,6 +95,8 @@ fn is_final_resp(resp: &Resp) -> bool {
     resp.contains_key("status")
 }
 
+/// It is responsible for communication with nrepl bencode socket
+
 impl NreplStream {
     pub fn connect_timeout(addr: &SocketAddr) -> Result<NreplStream, Error> {
         TcpStream::connect_timeout(addr, Duration::new(3, 0))
@@ -141,6 +143,7 @@ impl NreplStream {
         }
     }
 
+    /// Serializes given `op` and sends to Nrepl socket using given transport
     pub fn op(&self, op: &Op) -> Result<Vec<Resp>, Error> {
         let mut resps: Vec<Resp> = vec![];
 

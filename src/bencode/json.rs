@@ -1,3 +1,5 @@
+//! Transforms `bencode::Object` to `serde_json::value::Value`
+
 use crate::bencode::Object;
 use serde_json::map::Map;
 use serde_json::value::Value;
@@ -8,6 +10,19 @@ pub enum Error {
     StringDecodeError(std::string::FromUtf8Error),
     UnknownError,
 }
+
+/// # Example
+///
+/// ```
+/// use ultra_nrepl::bencode::Object;
+/// use ultra_nrepl::bencode::json::to_json_val;
+/// use serde_json::value::Value;
+///
+/// assert_eq!(
+///     Value::Array(vec![Value::String("foobar".to_string())]),
+///     to_json_val(&Object::List(vec![Object::BBytes(b"foobar".to_vec())])).unwrap()
+/// )
+/// ```
 
 pub fn to_json_val(obj: &Object) -> Result<Value, Error> {
     match obj {
@@ -25,7 +40,8 @@ pub fn to_json_val(obj: &Object) -> Result<Value, Error> {
             let mut obj_map = Map::new();
 
             for (k, v) in pairs.into_iter() {
-                let k_str = String::from_utf8(k.to_vec()).map_err(|e| Error::DictKeyDecodeError(e))?;
+                let k_str =
+                    String::from_utf8(k.to_vec()).map_err(|e| Error::DictKeyDecodeError(e))?;
 
                 obj_map.insert(k_str, to_json_val(v)?);
             }

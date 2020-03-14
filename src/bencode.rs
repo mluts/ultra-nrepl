@@ -1,3 +1,10 @@
+//! Decodes bencode from `BufRead + Read`
+//!
+//! # Purpose
+//!
+//! It was written due to absence of options for decoding bencode objects on unknown length.
+//! For example from `std::net::TcpStream`
+
 pub mod json;
 
 use std::io::{BufRead, Error as IOErr, Read};
