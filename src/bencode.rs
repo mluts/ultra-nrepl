@@ -91,9 +91,15 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
 
     fn read_int(&mut self) -> Result<i64, Error> {
         let mut int_buf: Vec<u8> = vec![];
+
         self.rdr
             .read_until('e' as u8, &mut int_buf)
             .map_err(|e| Error::IOError(e))?;
+
+        match int_buf.pop().map(|v| v as char) {
+            Some('e') => (),
+            _ => return Err(Error::UnexpectedEOF),
+        }
 
         let int_str = String::from_utf8(int_buf)
             .map_err(|e| Error::MalformedInput(format!("Int utf8 error: {}", e)))?;
@@ -218,7 +224,7 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader, Read};
+    use std::io::BufReader;
 
     #[test]
     fn empty_buffer_test() {
@@ -229,12 +235,22 @@ mod tests {
 
     #[test]
     fn integer_test() {
+        let ser = b"i-42e";
+        let mut buf: BufReader<&[u8]> = BufReader::new(ser);
+        let mut decoder = Decoder::new(&mut buf);
+        assert_eq!(Some(Object::Number(-42)), decoder.read_object().unwrap());
+    }
+
+    #[test]
+    fn integer_panic_test() -> Result<(), String> {
         let ser = b"i-42";
         let mut buf: BufReader<&[u8]> = BufReader::new(ser);
         let mut decoder = Decoder::new(&mut buf);
-        assert_eq!(
-            Some(Object::Number(-42)),
-            decoder.read_object().unwrap()
-        );
+        match decoder.read_object() {
+            Ok(_) => Err(format!(
+                "Expected to have UnexpectedEOF when int code was not finished!"
+            )),
+            Err(_) => Ok(()),
+        }
     }
 }
