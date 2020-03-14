@@ -2,7 +2,7 @@ pub mod json;
 
 use std::io::{BufRead, Error as IOErr, Read};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Object {
     List(Vec<Object>),
     Dict(Vec<(Vec<u8>, Object)>),
@@ -105,26 +105,33 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
         Ok(n)
     }
 
-    fn decode_token(&mut self) -> Result<Token, Error> {
+    fn decode_token(&mut self) -> Result<Option<Token>, Error> {
         let mut buf: [u8; 1] = [0; 1];
 
-        self.rdr
-            .read_exact(&mut buf)
-            .map_err(|e| Error::IOError(e))?;
-
-        match buf[0] as char {
-            'l' => Ok(Token::List),
-            'i' => Ok(Token::Int),
-            'd' => Ok(Token::Dict),
-            'e' => Ok(Token::End),
-            v @ '0'..='9' => self.read_length(vec![v as u8]).map(|l| Token::Length(l)),
-            c => Err(Error::UnexpectedToken(c)),
+        match self.rdr.read_exact(&mut buf) {
+            Ok(()) => (),
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::UnexpectedEof => return Ok(None),
+                _err_kind => return Err(Error::IOError(e)),
+            },
         }
+
+        let t = match buf[0] as char {
+            'l' => Token::List,
+            'i' => Token::Int,
+            'd' => Token::Dict,
+            'e' => Token::End,
+            v @ '0'..='9' => self.read_length(vec![v as u8]).map(|l| Token::Length(l))?,
+            c => return Err(Error::UnexpectedToken(c)),
+        };
+
+        Ok(Some(t))
     }
 
     fn push_next_token(&mut self) -> Result<(), Error> {
-        let token = self.decode_token()?;
-        self.tokens.push(token);
+        if let Some(t) = self.decode_token()? {
+            self.tokens.push(t)
+        }
         Ok(())
     }
 
@@ -135,77 +142,99 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
         Ok(())
     }
 
-    fn pop_token(&mut self) -> Result<Token, Error> {
+    fn pop_token(&mut self) -> Result<Option<Token>, Error> {
         self.ensure_token()?;
-        match self.tokens.pop() {
-            Some(token) => Ok(token),
-            None => unreachable!(),
-        }
+        Ok(self.tokens.pop())
     }
 
-    fn peek_token(&mut self) -> Result<&Token, Error> {
+    fn peek_token(&mut self) -> Result<Option<&Token>, Error> {
         self.ensure_token()?;
-
-        match self.tokens.last() {
-            Some(token) => Ok(token),
-            None => unreachable!(),
-        }
+        Ok(self.tokens.last())
     }
 
     fn read_dict_pair(&mut self) -> Result<(Vec<u8>, Object), Error> {
-        match self.pop_token()? {
+        match self.pop_token()?.ok_or(Error::UnexpectedEOF)? {
             Token::Length(n) => {
                 let dict_key = self.read_str(n)?;
-                let dict_val = self.read_object()?;
+                let dict_val = self.read_object()?.ok_or(Error::UnexpectedEOF)?;
                 Ok((dict_key, dict_val))
             }
-            t => Err(Error::ExpectedDictKey(t)),
+            other_token => Err(Error::ExpectedDictKey(other_token)),
         }
     }
 
-    pub fn read_object(&mut self) -> Result<Object, Error> {
-        match self.pop_token()? {
-            Token::List => {
-                let mut objs_read: Vec<Object> = vec![];
+    pub fn read_object(&mut self) -> Result<Option<Object>, Error> {
+        if let Some(t) = self.pop_token()? {
+            match t {
+                Token::List => {
+                    let mut objs_read: Vec<Object> = vec![];
 
-                loop {
-                    match self.peek_token()? {
-                        Token::End => {
-                            self.pop_token()?;
-                            return Ok(Object::List(objs_read));
-                        }
-                        _ => objs_read.push(self.read_object()?),
-                    }
-                }
-            }
-
-            Token::Dict => {
-                let mut pairs_read: Vec<(Vec<u8>, Object)> = vec![];
-
-                loop {
-                    match self.peek_token()? {
-                        Token::End => {
-                            self.pop_token()?;
-                            return Ok(Object::Dict(pairs_read));
-                        }
-                        _ => {
-                            let pair = self.read_dict_pair()?;
-                            pairs_read.push(pair);
+                    loop {
+                        match self.peek_token()?.ok_or(Error::UnexpectedEOF)? {
+                            Token::End => {
+                                self.pop_token()?;
+                                return Ok(Some(Object::List(objs_read)));
+                            }
+                            _ => objs_read.push(self.read_object()?.ok_or(Error::UnexpectedEOF)?),
                         }
                     }
                 }
-            }
 
-            Token::Int => {
-                let int_num = self.read_int()?;
-                Ok(Object::Number(int_num))
-            }
+                Token::Dict => {
+                    let mut pairs_read: Vec<(Vec<u8>, Object)> = vec![];
 
-            Token::Length(n) => {
-                let bytes = self.read_str(n)?;
-                Ok(Object::BBytes(bytes))
+                    loop {
+                        match self.peek_token()? {
+                            Some(Token::End) => {
+                                self.pop_token()?.unwrap();
+                                return Ok(Some(Object::Dict(pairs_read)));
+                            }
+                            Some(_else) => {
+                                let pair = self.read_dict_pair()?;
+                                pairs_read.push(pair);
+                            }
+                            None => return Err(Error::UnexpectedEOF),
+                        }
+                    }
+                }
+
+                Token::Int => {
+                    let int_num = self.read_int()?;
+                    Ok(Some(Object::Number(int_num)))
+                }
+
+                Token::Length(n) => {
+                    let bytes = self.read_str(n)?;
+                    Ok(Some(Object::BBytes(bytes)))
+                }
+                t => Err(Error::ExpectedObjectStart(t)),
             }
-            t => Err(Error::ExpectedObjectStart(t)),
+        } else {
+            Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Read};
+
+    #[test]
+    fn empty_buffer_test() {
+        let mut buf: BufReader<&[u8]> = BufReader::new(&[0; 0]);
+        let mut decoder = Decoder::new(&mut buf);
+        assert_eq!(None, decoder.read_object().unwrap());
+    }
+
+    #[test]
+    fn integer_test() {
+        let ser = b"i-42";
+        let mut buf: BufReader<&[u8]> = BufReader::new(ser);
+        let mut decoder = Decoder::new(&mut buf);
+        assert_eq!(
+            Some(Object::Number(-42)),
+            decoder.read_object().unwrap()
+        );
     }
 }

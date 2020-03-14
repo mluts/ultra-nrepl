@@ -118,7 +118,10 @@ impl NreplStream {
         let mut br = BufReader::new(&self.tcp);
         let mut decoder = bencode::Decoder::new(&mut br);
 
-        match decoder.read_object() {
+        match decoder
+            .read_object()
+            .map(|o| o.expect("Wasn't able to read response to the end"))
+        {
             Ok(bencode::Object::Dict(pairs)) => {
                 let mut resp: Resp = HashMap::new();
 
@@ -155,5 +158,27 @@ impl NreplStream {
         }
 
         Ok(resps)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bencode;
+    use std::collections::HashMap;
+    use std::iter::FromIterator;
+
+    #[test]
+    fn final_resp_test() {
+        let final_resp = HashMap::from_iter(
+            vec![("status".to_string(), bencode::Object::BBytes(vec![]))].into_iter(),
+        );
+
+        let not_final_resp = HashMap::from_iter(
+            vec![("foo".to_string(), bencode::Object::BBytes(vec![]))].into_iter(),
+        );
+
+        assert!(is_final_resp(&final_resp));
+        assert!(!is_final_resp(&not_final_resp));
     }
 }
