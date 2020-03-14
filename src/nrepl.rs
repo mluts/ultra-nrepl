@@ -91,26 +91,30 @@ impl ToBencode for Op {
     }
 }
 
+fn is_final_resp(resp: &Resp) -> bool {
+    resp.contains_key("status")
+}
+
 impl NreplStream {
     pub fn connect_timeout(addr: &SocketAddr) -> Result<NreplStream, Error> {
         TcpStream::connect_timeout(addr, Duration::new(3, 0))
             .and_then(|t| {
                 t.set_nonblocking(false)?;
-                t.set_read_timeout(None)?;
+                t.set_read_timeout(Some(Duration::new(5, 0)))?;
                 Ok(t)
             })
             .map(|s| NreplStream { tcp: s })
             .map_err(|e| Error::IOError(e))
     }
 
-    pub fn send_op(&self, op: &Op) -> Result<(), Error> {
+    fn send_op(&self, op: &Op) -> Result<(), Error> {
         let mut bw = BufWriter::new(&self.tcp);
         let bencode = op.to_bencode().map_err(|e| Error::BencodeEncodeError(e))?;
         bw.write(&bencode).map_err(|e| Error::IOError(e))?;
         Ok(())
     }
 
-    pub fn read_resp(&self) -> Result<Resp, Error> {
+    fn read_resp(&self) -> Result<Resp, Error> {
         let mut br = BufReader::new(&self.tcp);
         let mut decoder = bencode::Decoder::new(&mut br);
 
@@ -132,5 +136,24 @@ impl NreplStream {
             Ok(o) => Err(Error::UnexpectedBencodeObject(o)),
             Err(e) => Err(Error::BencodeDecodeError(e)),
         }
+    }
+
+    pub fn op(&self, op: &Op) -> Result<Vec<Resp>, Error> {
+        let mut resps: Vec<Resp> = vec![];
+
+        self.send_op(op)?;
+
+        loop {
+            let resp = self.read_resp()?;
+            let is_final = is_final_resp(&resp);
+
+            resps.push(resp);
+
+            if is_final {
+                break;
+            }
+        }
+
+        Ok(resps)
     }
 }

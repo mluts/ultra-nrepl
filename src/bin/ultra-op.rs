@@ -95,12 +95,12 @@ fn main() {
         Ok(opts) => {
             let addr: std::net::SocketAddr = format!("127.0.0.1:{}", opts.port).parse().unwrap();
 
-            let nrepl_conn = nrepl::NreplStream::connect_timeout(&addr).unwrap();
+            let nrepl_stream = nrepl::NreplStream::connect_timeout(&addr).unwrap();
             let op = nrepl::Op::new(opts.op, opts.op_args);
 
-            nrepl_conn.send_op(&op).unwrap();
-            let resp = nrepl_conn.read_resp().unwrap();
-            println!("Nrepl resp: {}", nrepl::to_json_string(&resp).unwrap());
+            for resp in nrepl_stream.op(&op).unwrap() {
+                println!("{}", nrepl::to_json_string(&resp).unwrap());
+            }
         }
         Err(e) => eprintln!("Parse error: {}", e),
     }
