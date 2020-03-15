@@ -1,31 +1,31 @@
-use clap::clap_app;
-use std::error;
 use std::fmt;
-use ultra_nrepl::nrepl;
+use std::error;
+use clap::{App, ArgMatches, clap_app};
+use crate::nrepl;
 
 #[derive(Debug)]
-enum OptsParseError {
+enum OpOptsParseError {
     BadOpArg(String),
     BadUserInput(String),
 }
 
-impl fmt::Display for OptsParseError {
+impl fmt::Display for OpOptsParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "OptsParseError: {}",
+            "OpOptsParseError: {}",
             match self {
-                OptsParseError::BadOpArg(op_arg) => format!("Bad op arg: {}", op_arg),
-                OptsParseError::BadUserInput(msg) => format!("Bad user input: {}", msg),
+                OpOptsParseError::BadOpArg(op_arg) => format!("Bad op arg: {}", op_arg),
+                OpOptsParseError::BadUserInput(msg) => format!("Bad user input: {}", msg),
             }
         )
     }
 }
 
-impl error::Error for OptsParseError {}
+impl error::Error for OpOptsParseError {}
 
 #[derive(Debug)]
-struct Opts {
+struct OpOpts {
     op: String,
 
     op_args: Vec<(String, String)>,
@@ -42,25 +42,15 @@ fn parse_op_arg(s: &str) -> Option<(String, String)> {
     }
 }
 
-impl Opts {
-    fn parse() -> Result<Opts, OptsParseError> {
-        let matches = clap_app!( ultra_op =>
-            (version: "0.1")
-            (author: "Michael Lutsiuk <michael.lutsiuk@gmail.com>")
-            (about: "Sends OP to Nrepl and produces JSON output for response")
-            (@arg OP: +required "Op to send")
-            (@arg PORT: +takes_value +required -p --port "Nrepl port")
-            (@arg OP_ARG: ... "Op Argument")
-        )
-        .get_matches();
-
+impl OpOpts {
+    fn parse(matches: &ArgMatches) -> Result<OpOpts, OpOptsParseError> {
         let op = matches.value_of("OP").unwrap();
 
         let port = matches
             .value_of("PORT")
             .unwrap()
             .parse::<u32>()
-            .map_err(|e| OptsParseError::BadUserInput(format!("Failed to parse port: {}", e)))?;
+            .map_err(|e| OpOptsParseError::BadUserInput(format!("Failed to parse port: {}", e)))?;
 
         let op_args = matches
             .values_of("OP_ARG")
@@ -69,18 +59,18 @@ impl Opts {
             .iter()
             .fold(
                 Ok(vec![]),
-                |acc: Result<Vec<(String, String)>, OptsParseError>, op_arg| {
+                |acc: Result<Vec<(String, String)>, OpOptsParseError>, op_arg| {
                     acc.and_then(|mut op_opts| match parse_op_arg(op_arg) {
                         Some(args) => {
                             op_opts.push(args);
                             Ok(op_opts)
                         }
-                        None => Err(OptsParseError::BadOpArg(op_arg.to_string())),
+                        None => Err(OpOptsParseError::BadOpArg(op_arg.to_string())),
                     })
                 },
             )?;
 
-        let opts = Opts {
+        let opts = OpOpts {
             op: op.to_string(),
             op_args: op_args,
             port: port,
@@ -90,8 +80,17 @@ impl Opts {
     }
 }
 
-fn main() {
-    match Opts::parse() {
+pub fn app<'a, 'b>() -> App<'a, 'b> {
+    clap_app!(op =>
+        (about: "Sends OP to Nrepl and produces JSON output for response")
+        (@arg OP: +required "Op to send")
+        (@arg PORT: +takes_value +required -p --port "Nrepl port")
+        (@arg OP_ARG: ... "Op Argument")
+    )
+}
+
+pub fn run(matches: &ArgMatches) {
+    match OpOpts::parse(matches) {
         Ok(opts) => {
             let addr: std::net::SocketAddr = format!("127.0.0.1:{}", opts.port).parse().unwrap();
 
