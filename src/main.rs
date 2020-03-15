@@ -12,6 +12,9 @@ fn main() {
 
     match matches.subcommand() {
         ("op", Some(argm)) => op::run(&argm),
-        _ => app.print_help().unwrap(),
+        _ => {
+            app.print_help().unwrap();
+            println!("\n")
+        }
     }
 }
