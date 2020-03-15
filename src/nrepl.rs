@@ -1,9 +1,12 @@
+pub mod session;
+
 use crate::bencode;
 use crate::bencode::json as bencode_json;
 use bendy::encoding::{Error as BError, SingleItemEncoder, ToBencode};
 use serde_json::error as json_error;
 use serde_json::value::Value as JsonValue;
 use std::collections::HashMap;
+use std::convert::Into;
 use std::fmt;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -109,9 +112,12 @@ impl NreplStream {
             .map_err(|e| Error::IOError(e))
     }
 
-    fn send_op(&self, op: &Op) -> Result<(), Error> {
+    fn send_op<'a, T: Into<&'a Op>>(&'a self, op: T) -> Result<(), Error> {
         let mut bw = BufWriter::new(&self.tcp);
-        let bencode = op.to_bencode().map_err(|e| Error::BencodeEncodeError(e))?;
+        let bencode = op
+            .into()
+            .to_bencode()
+            .map_err(|e| Error::BencodeEncodeError(e))?;
         bw.write(&bencode).map_err(|e| Error::IOError(e))?;
         Ok(())
     }
@@ -144,7 +150,7 @@ impl NreplStream {
     }
 
     /// Serializes given `op` and sends to Nrepl socket using given transport
-    pub fn op(&self, op: &Op) -> Result<Vec<Resp>, Error> {
+    pub fn op<'a, T: Into<&'a Op>>(&'a self, op: T) -> Result<Vec<Resp>, Error> {
         let mut resps: Vec<Resp> = vec![];
 
         self.send_op(op)?;

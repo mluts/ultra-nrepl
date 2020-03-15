@@ -36,7 +36,13 @@ pub enum Error {
     BadLengthStr,
     MalformedInput(String),
     IOError(IOErr),
-    ReadError(String),
+    StrReadError(u32),
+}
+
+impl std::convert::From<IOErr> for Error {
+    fn from(err: IOErr) -> Error {
+        Error::IOError(err)
+    }
 }
 
 pub struct Decoder<'buf, R: BufRead + Read> {
@@ -55,9 +61,7 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
     fn read_length(&mut self, prefix: Vec<u8>) -> Result<u32, Error> {
         let mut len_buf: Vec<u8> = prefix;
 
-        self.rdr
-            .read_until(':' as u8, &mut len_buf)
-            .map_err(|e| Error::IOError(e))?;
+        self.rdr.read_until(':' as u8, &mut len_buf)?;
 
         match len_buf.pop().map(|c| c as char) {
             Some(':') => (),
@@ -82,26 +86,19 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
 
         vec.resize(len as usize, 0);
 
-        self.rdr
-            .read_exact(vec.as_mut_slice())
-            .map_err(|e| Error::IOError(e))?;
+        self.rdr.read_exact(vec.as_mut_slice())?;
 
         if vec.len() == len as usize {
             Ok(vec)
         } else {
-            Err(Error::ReadError(format!(
-                "Failed to read string with length: {}",
-                len
-            )))
+            Err(Error::StrReadError(len))
         }
     }
 
     fn read_int(&mut self) -> Result<i64, Error> {
         let mut int_buf: Vec<u8> = vec![];
 
-        self.rdr
-            .read_until('e' as u8, &mut int_buf)
-            .map_err(|e| Error::IOError(e))?;
+        self.rdr.read_until('e' as u8, &mut int_buf)?;
 
         match int_buf.pop().map(|v| v as char) {
             Some('e') => (),
@@ -125,7 +122,7 @@ impl<'buf, R: BufRead + Read> Decoder<'buf, R> {
             Ok(()) => (),
             Err(e) => match e.kind() {
                 std::io::ErrorKind::UnexpectedEof => return Ok(None),
-                _err_kind => return Err(Error::IOError(e)),
+                _err_kind => return Err(Error::from(e)),
             },
         }
 

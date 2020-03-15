@@ -1,31 +1,31 @@
-use std::fmt;
-use std::error;
-use clap::{App, ArgMatches, clap_app};
 use crate::nrepl;
+use clap::{clap_app, App, ArgMatches};
+use std::error;
+use std::fmt;
 
 #[derive(Debug)]
-enum OpOptsParseError {
+enum OptsParseError {
     BadOpArg(String),
     BadUserInput(String),
 }
 
-impl fmt::Display for OpOptsParseError {
+impl fmt::Display for OptsParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "OpOptsParseError: {}",
+            "OptsParseError: {}",
             match self {
-                OpOptsParseError::BadOpArg(op_arg) => format!("Bad op arg: {}", op_arg),
-                OpOptsParseError::BadUserInput(msg) => format!("Bad user input: {}", msg),
+                OptsParseError::BadOpArg(op_arg) => format!("Bad op arg: {}", op_arg),
+                OptsParseError::BadUserInput(msg) => format!("Bad user input: {}", msg),
             }
         )
     }
 }
 
-impl error::Error for OpOptsParseError {}
+impl error::Error for OptsParseError {}
 
 #[derive(Debug)]
-struct OpOpts {
+struct Opts {
     op: String,
 
     op_args: Vec<(String, String)>,
@@ -42,15 +42,15 @@ fn parse_op_arg(s: &str) -> Option<(String, String)> {
     }
 }
 
-impl OpOpts {
-    fn parse(matches: &ArgMatches) -> Result<OpOpts, OpOptsParseError> {
+impl Opts {
+    fn parse(matches: &ArgMatches) -> Result<Opts, OptsParseError> {
         let op = matches.value_of("OP").unwrap();
 
         let port = matches
             .value_of("PORT")
             .unwrap()
             .parse::<u32>()
-            .map_err(|e| OpOptsParseError::BadUserInput(format!("Failed to parse port: {}", e)))?;
+            .map_err(|e| OptsParseError::BadUserInput(format!("Failed to parse port: {}", e)))?;
 
         let op_args = matches
             .values_of("OP_ARG")
@@ -59,18 +59,18 @@ impl OpOpts {
             .iter()
             .fold(
                 Ok(vec![]),
-                |acc: Result<Vec<(String, String)>, OpOptsParseError>, op_arg| {
+                |acc: Result<Vec<(String, String)>, OptsParseError>, op_arg| {
                     acc.and_then(|mut op_opts| match parse_op_arg(op_arg) {
                         Some(args) => {
                             op_opts.push(args);
                             Ok(op_opts)
                         }
-                        None => Err(OpOptsParseError::BadOpArg(op_arg.to_string())),
+                        None => Err(OptsParseError::BadOpArg(op_arg.to_string())),
                     })
                 },
             )?;
 
-        let opts = OpOpts {
+        let opts = Opts {
             op: op.to_string(),
             op_args: op_args,
             port: port,
@@ -90,7 +90,7 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
 }
 
 pub fn run(matches: &ArgMatches) {
-    match OpOpts::parse(matches) {
+    match Opts::parse(matches) {
         Ok(opts) => {
             let addr: std::net::SocketAddr = format!("127.0.0.1:{}", opts.port).parse().unwrap();
 
