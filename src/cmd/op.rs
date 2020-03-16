@@ -1,5 +1,9 @@
 use crate::nrepl;
 use clap::{clap_app, App, ArgMatches};
+use serde_bencode::value::Value as BencodeValue;
+use serde_json::error as json_error;
+use serde_json::value::Value as JsonValue;
+use std::collections::HashMap;
 use std::error;
 use std::fmt;
 
@@ -31,6 +35,34 @@ struct Opts {
     op_args: Vec<(String, String)>,
 
     port: u32,
+}
+
+pub fn to_json_string(resp: &nrepl::Resp) -> Result<String, json_error::Error> {
+    let mut hm: HashMap<String, JsonValue> = HashMap::new();
+
+    for (k, v) in resp.iter() {
+        hm.insert(
+            k.to_string(),
+            match v {
+                BencodeValue::Bytes(s) => JsonValue::String(String::from_utf8(s.to_vec()).unwrap()),
+                BencodeValue::List(ls) => JsonValue::Array(
+                    ls.into_iter()
+                        .map(|e| {
+                            JsonValue::String(if let BencodeValue::Bytes(s) = e {
+                                String::from_utf8(s.to_vec()).unwrap()
+                            } else {
+                                "BENCODE".to_string()
+                            })
+                        })
+                        .collect(),
+                ),
+
+                _ => JsonValue::String("BENCODE VALUE".to_string()),
+            },
+        );
+    }
+
+    serde_json::to_string(&hm)
 }
 
 fn parse_op_arg(s: &str) -> Option<(String, String)> {
@@ -97,8 +129,8 @@ pub fn run(matches: &ArgMatches) {
             let nrepl_stream = nrepl::NreplStream::connect_timeout(&addr).unwrap();
             let op = nrepl::Op::new(opts.op, opts.op_args);
 
-            for resp in nrepl_stream.op(&op).unwrap() {
-                println!("{}", nrepl::to_json_string(&resp).unwrap());
+            for resp in nrepl_stream.op(op).unwrap() {
+                println!("{}", to_json_string(&resp).unwrap());
             }
         }
         Err(e) => eprintln!("Parse error: {}", e),

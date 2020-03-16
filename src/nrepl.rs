@@ -1,11 +1,10 @@
+pub mod ops;
 pub mod session;
 
 // use crate::bencode::json as bencode_json;
 use bendy::encoding::{Error as BError, SingleItemEncoder, ToBencode};
 use serde::{Deserialize, Serialize};
 use serde_bencode::value::Value as BencodeValue;
-use serde_json::error as json_error;
-use serde_json::value::Value as JsonValue;
 use std::collections::HashMap;
 use std::convert::Into;
 use std::convert::TryFrom;
@@ -60,6 +59,7 @@ impl fmt::Display for Error {
 
 pub struct NreplStream {
     tcp: TcpStream,
+    socket_addr: SocketAddr,
 }
 
 pub struct Op {
@@ -73,16 +73,14 @@ impl Op {
     }
 }
 
-// pub type Resp = HashMap<Vec<u8>, serde_bencode::value::Value>;
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Resp(HashMap<String, BencodeValue>);
 
-#[derive(Debug, Deserialize, Serialize)]
-pub enum RespVal {
-    Str(String),
-    Array(Vec<String>),
-}
+// #[derive(Debug, Deserialize, Serialize)]
+// pub enum RespVal {
+//     Str(String),
+//     Array(Vec<String>),
+// }
 
 #[derive(Debug)]
 pub enum RespError {
@@ -92,18 +90,18 @@ pub enum RespError {
     BadUtf8(std::string::FromUtf8Error),
 }
 
-impl std::convert::From<&RespVal> for JsonValue {
-    fn from(v: &RespVal) -> JsonValue {
-        match v {
-            RespVal::Str(s) => JsonValue::String(s.clone()),
-            RespVal::Array(ls) => JsonValue::Array(
-                ls.into_iter()
-                    .map(|v| JsonValue::String(v.clone()))
-                    .collect(),
-            ),
-        }
-    }
-}
+// impl std::convert::From<&RespVal> for JsonValue {
+//     fn from(v: &RespVal) -> JsonValue {
+//         match v {
+//             RespVal::Str(s) => JsonValue::String(s.clone()),
+//             RespVal::Array(ls) => JsonValue::Array(
+//                 ls.into_iter()
+//                     .map(|v| JsonValue::String(v.clone()))
+//                     .collect(),
+//             ),
+//         }
+//     }
+// }
 
 impl std::convert::From<std::string::FromUtf8Error> for RespError {
     fn from(err: std::string::FromUtf8Error) -> Self {
@@ -144,26 +142,32 @@ impl std::ops::Deref for Resp {
     }
 }
 
-impl TryFrom<BencodeValue> for RespVal {
-    type Error = RespError;
-
-    fn try_from(val: BencodeValue) -> Result<Self, Self::Error> {
-        match val {
-            BencodeValue::Bytes(bs) => Ok(Self::Str(String::from_utf8(bs)?)),
-            BencodeValue::List(ls) => {
-                let vals = ls
-                    .into_iter()
-                    .map(|v| match v {
-                        BencodeValue::Bytes(bs) => Ok(String::from_utf8(bs)?),
-                        v => Err(Self::Error::ExpectedString(v)),
-                    })
-                    .collect::<Result<Vec<String>, Self::Error>>()?;
-                Ok(Self::Array(vals))
-            }
-            v => Err(Self::Error::ExpectedStrOrArray(v)),
-        }
+impl std::ops::DerefMut for Resp {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
+
+// impl TryFrom<BencodeValue> for RespVal {
+//     type Error = RespError;
+
+//     fn try_from(val: BencodeValue) -> Result<Self, Self::Error> {
+//         match val {
+//             BencodeValue::Bytes(bs) => Ok(Self::Str(String::from_utf8(bs)?)),
+//             BencodeValue::List(ls) => {
+//                 let vals = ls
+//                     .into_iter()
+//                     .map(|v| match v {
+//                         BencodeValue::Bytes(bs) => Ok(String::from_utf8(bs)?),
+//                         v => Err(Self::Error::ExpectedString(v)),
+//                     })
+//                     .collect::<Result<Vec<String>, Self::Error>>()?;
+//                 Ok(Self::Array(vals))
+//             }
+//             v => Err(Self::Error::ExpectedStrOrArray(v)),
+//         }
+//     }
+// }
 
 impl TryFrom<BencodeValue> for Resp {
     type Error = RespError;
@@ -179,19 +183,6 @@ impl TryFrom<BencodeValue> for Resp {
             v => Err(Self::Error::ExpectedMap(v)),
         }
     }
-}
-
-pub fn to_json_string(resp: &Resp) -> Result<String, json_error::Error> {
-    let mut hm: HashMap<String, JsonValue> = HashMap::new();
-
-    for (k, v) in resp.iter() {
-        hm.insert(k.to_string(), match v {
-            BencodeValue::Bytes(s) => JsonValue::String(String::from_utf8(s.to_vec()).unwrap()),
-            _ => JsonValue::String("BENCODE VALUE".to_string())
-        });
-    }
-
-    serde_json::to_string(&hm)
 }
 
 impl ToBencode for Op {
@@ -233,11 +224,14 @@ impl NreplStream {
                 t.set_read_timeout(Some(Duration::new(5, 0)))?;
                 Ok(t)
             })
-            .map(|s| NreplStream { tcp: s })
+            .map(|s| NreplStream {
+                tcp: s,
+                socket_addr: addr.clone(),
+            })
             .map_err(|e| Error::IOError(e))
     }
 
-    fn send_op<'a, T: Into<&'a Op>>(&'a self, op: T) -> Result<(), Error> {
+    fn send_op<T: Into<Op>>(&self, op: T) -> Result<(), Error> {
         let mut bw = BufWriter::new(&self.tcp);
         let bencode = op
             .into()
@@ -256,7 +250,7 @@ impl NreplStream {
     }
 
     /// Serializes given `op` and sends to Nrepl socket using given transport
-    pub fn op<'a, T: Into<&'a Op>>(&'a self, op: T) -> Result<Vec<Resp>, Error> {
+    pub fn op<T: Into<Op>>(&self, op: T) -> Result<Vec<Resp>, Error> {
         let mut resps: Vec<Resp> = vec![];
 
         self.send_op(op)?;
@@ -274,6 +268,16 @@ impl NreplStream {
 
         Ok(resps)
     }
+
+    pub fn addr_string(&self) -> String {
+        self.socket_addr.to_string()
+    }
+}
+
+pub trait NreplOp<T> {
+    type Error;
+
+    fn send(&self, nrepl: &NreplStream) -> Result<T, Self::Error>;
 }
 
 #[cfg(test)]
