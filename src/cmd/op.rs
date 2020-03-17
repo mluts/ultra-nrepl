@@ -45,14 +45,21 @@ pub fn to_json_string(resp: &nrepl::Resp) -> Result<String, json_error::Error> {
             k.to_string(),
             match v {
                 BencodeValue::Bytes(s) => JsonValue::String(String::from_utf8(s.to_vec()).unwrap()),
+                BencodeValue::Int(i) => {
+                    JsonValue::Number(serde_json::value::Number::from_f64(*i as f64).unwrap())
+                }
                 BencodeValue::List(ls) => JsonValue::Array(
                     ls.into_iter()
                         .map(|e| {
-                            JsonValue::String(if let BencodeValue::Bytes(s) = e {
-                                String::from_utf8(s.to_vec()).unwrap()
+                            if let BencodeValue::Bytes(s) = e {
+                                JsonValue::String(String::from_utf8(s.to_vec()).unwrap())
+                            } else if let BencodeValue::Int(i) = e {
+                                JsonValue::Number(
+                                    serde_json::value::Number::from_f64(*i as f64).unwrap(),
+                                )
                             } else {
-                                "BENCODE".to_string()
-                            })
+                                JsonValue::String("BENCODE".to_string())
+                            }
                         })
                         .collect(),
                 ),
