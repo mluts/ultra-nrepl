@@ -382,6 +382,7 @@ dependencies = [
  "bendy",
  "clap",
  "dirs",
+ "failure",
  "fs2",
  "serde",
  "serde_bencode",

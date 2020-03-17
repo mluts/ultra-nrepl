@@ -1,45 +1,29 @@
 use crate::bencode as bc;
 use crate::nrepl;
-use crate::nrepl::NreplOp;
-use fs2::FileExt;
-use serde_bencode::value::Value as BencodeValue;
-use std::collections::HashMap;
+use failure::Fail;
 use std::convert::From;
-use std::io::Write;
-use std::path::PathBuf;
 
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum Error {
-    NreplError(nrepl::Error),
-    IOError(std::io::Error),
+    #[fail(display = "nrepl error: {}", nrepl_err)]
+    NreplError { nrepl_err: nrepl::Error },
+    #[fail(display = "no session id in response")]
     NoSessionIdInResponse,
+    #[fail(display = "no sessions list in response")]
     NoSessionsInResponse,
-    BadSessionIdValue(BencodeValue),
-    JsonError(serde_json::error::Error),
-    ToStringError(bc::Error),
-}
-
-impl From<serde_json::error::Error> for Error {
-    fn from(e: serde_json::error::Error) -> Self {
-        Self::JsonError(e)
-    }
+    #[fail(display = "failed converting bencode to string: {}", bcerr)]
+    ToStringError { bcerr: bc::Error },
 }
 
 impl From<nrepl::Error> for Error {
     fn from(e: nrepl::Error) -> Self {
-        Self::NreplError(e)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Error {
-        Self::IOError(e)
+        Self::NreplError { nrepl_err: e }
     }
 }
 
 impl From<bc::Error> for Error {
     fn from(e: bc::Error) -> Error {
-        Self::ToStringError(e)
+        Self::ToStringError { bcerr: e }
     }
 }
 
@@ -91,104 +75,4 @@ impl nrepl::NreplOp<Vec<String>> for LsSessions {
         }
         Err(Error::NoSessionsInResponse)
     }
-}
-
-pub enum OpResp {
-    CloneSession { new_session: String },
-    LsSessions { sessions: Vec<String> },
-}
-
-fn create_session(nrepl: &nrepl::NreplStream) -> Result<String, Error> {
-    let op = CloneSession { session: None };
-
-    Ok(op.send(nrepl)?)
-}
-
-fn config_path() -> PathBuf {
-    let mut dir = dirs::data_local_dir().unwrap();
-
-    dir.push("ultra_nrepl");
-
-    dir
-}
-
-fn sessions_path() -> PathBuf {
-    let mut dir = config_path();
-
-    dir.push("sessions.json");
-
-    dir
-}
-
-fn save_session_id(n: &nrepl::NreplStream, session_id: &String) -> Result<(), Error> {
-    let mut sessions: HashMap<String, String> = HashMap::new();
-
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .create(config_path())?;
-
-    let mut f = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(sessions_path())?;
-
-    f.lock_exclusive()?;
-
-    if f.metadata()?.len() != 0 {
-        sessions = serde_json::from_reader(&mut f)?;
-    }
-
-    sessions.insert(n.addr_string(), session_id.clone());
-
-    f.set_len(0)?;
-    f.write(&serde_json::to_string(&sessions)?.into_bytes())?;
-
-    Ok(())
-}
-
-fn load_session_id(n: &nrepl::NreplStream) -> Result<Option<String>, Error> {
-    let sid = std::fs::File::open(sessions_path())
-        .and_then(|mut f| {
-            if f.metadata()?.len() > 0 {
-                let mut sessions: HashMap<String, String> = serde_json::from_reader(&mut f)?;
-                Ok(sessions.remove(&n.addr_string()))
-            } else {
-                Ok(None)
-            }
-        })
-        .or_else(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => Ok(None),
-            _ => Err(e),
-        })?;
-
-    Ok(sid)
-}
-
-fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool, Error> {
-    let op = LsSessions {};
-
-    for session in op.send(n)? {
-        if &session == session_id {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
-}
-
-pub fn get_existing_session_id(n: &nrepl::NreplStream) -> Result<String, Error> {
-    let mb_session_id = load_session_id(n)?;
-
-    if let Some(existing_session_id) = mb_session_id {
-        if session_id_exists(n, &existing_session_id)? {
-            return Ok(existing_session_id);
-        }
-    }
-
-    let new_session_id = create_session(n)?;
-
-    save_session_id(n, &new_session_id)?;
-
-    Ok(new_session_id)
 }

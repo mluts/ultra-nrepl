@@ -12,7 +12,7 @@ fn show_session_id(argm: &ArgMatches) {
     let port = argm.value_of("PORT").unwrap().parse::<u32>().unwrap();
     let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().unwrap();
     let nrepl_stream = ultra_nrepl::nrepl::NreplStream::connect_timeout(&addr).unwrap();
-    let sid = ultra_nrepl::nrepl::ops::get_existing_session_id(&nrepl_stream).unwrap();
+    let sid = ultra_nrepl::nrepl::session::get_existing_session_id(&nrepl_stream).unwrap();
     println!("Session id: {}", sid);
 }
 
