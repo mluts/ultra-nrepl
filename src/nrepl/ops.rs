@@ -13,6 +13,8 @@ pub enum Error {
     NoSessionsInResponse,
     #[fail(display = "failed converting bencode to string: {}", bcerr)]
     ToStringError { bcerr: bc::Error },
+    #[fail(display = "field was not found: {}", field)]
+    FieldNotFound { field: String },
 }
 
 impl From<nrepl::Error> for Error {
@@ -28,7 +30,13 @@ impl From<bc::Error> for Error {
 }
 
 pub struct CloneSession {
-    pub session: Option<String>,
+    session: Option<String>,
+}
+
+impl CloneSession {
+    pub fn new(session: Option<String>) -> Self {
+        Self { session }
+    }
 }
 
 impl From<&CloneSession> for nrepl::Op {
@@ -58,6 +66,12 @@ impl nrepl::NreplOp<String> for CloneSession {
 
 pub struct LsSessions {}
 
+impl LsSessions {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl From<&LsSessions> for nrepl::Op {
     fn from(_op: &LsSessions) -> nrepl::Op {
         nrepl::Op::new("ls-sessions".to_string(), vec![])
@@ -76,3 +90,68 @@ impl nrepl::NreplOp<Vec<String>> for LsSessions {
         Err(Error::NoSessionsInResponse)
     }
 }
+
+pub struct Info {
+    ns: String,
+    symbol: String,
+}
+
+pub struct InfoResponse {
+    line: u32,
+    col: u32,
+    file: String,
+    resource: String,
+    doc: String,
+}
+
+impl InfoResponse {
+    pub fn new(line: u32, col: u32, file: String, resource: String, doc: String) -> Self {
+        Self {
+            line,
+            col,
+            file,
+            resource,
+            doc,
+        }
+    }
+}
+
+impl Info {
+    pub fn new(ns: String, symbol: String) -> Self {
+        Self { ns, symbol }
+    }
+}
+
+impl From<&Info> for nrepl::Op {
+    fn from(Info { ns, symbol }: &Info) -> nrepl::Op {
+        nrepl::Op::new(
+            "info".to_string(),
+            vec![
+                ("symbol".to_string(), symbol.to_string()),
+                ("ns".to_string(), ns.to_string()),
+            ],
+        )
+    }
+}
+
+// impl nrepl::NreplOp<InfoResponse> for Info {
+//     type Error = Error;
+
+//     fn send(self: &Info, n: &nrepl::NreplStream) -> Result<InfoResponse, Error> {
+//         let mut resps = n.op(self)?;
+//         let resp = resps.pop().unwrap();
+//         let line: Result<i64, Self::Error> = resp
+//             .remove("line")
+//             .ok_or(Err(Error::FieldNotFound {
+//                 field: "line".to_string(),
+//             })).and_then(|n| {
+//                 bc::try_into_int(n)
+//             });
+
+//         // InfoResponse::new(
+
+//         // );
+
+//         Err(Error::NoSessionsInResponse)
+//     }
+// }

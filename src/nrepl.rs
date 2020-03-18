@@ -1,59 +1,58 @@
 pub mod ops;
 pub mod session;
 
-// use crate::bencode::json as bencode_json;
+use crate::bencode;
 use bendy::encoding::{Error as BError, SingleItemEncoder, ToBencode};
+use failure::Fail;
 use serde::{Deserialize, Serialize};
 use serde_bencode::value::Value as BencodeValue;
 use std::collections::HashMap;
-use std::convert::Into;
-use std::convert::TryFrom;
+use std::convert::{From, Into, TryFrom};
 use std::fmt;
 use std::io::{BufWriter, Write};
 use std::iter::FromIterator;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum Error {
-    ConnectionLost,
-    BencodeEncodeError(BError),
-    IOError(std::io::Error),
-    BadBencodeString(std::string::FromUtf8Error),
-    DuplicatedKeyError(String),
-    BencodeDeserializeError(serde_bencode::error::Error),
+    #[fail(display = "failed to encode bencode: {}", berr)]
+    BencodeEncodeError { berr: BError },
+    #[fail(display = "nrepl io error: {}", ioerr)]
+    IOError { ioerr: std::io::Error },
+    #[fail(display = "bencode string decode failed: {}", utf8err)]
+    BadBencodeString { utf8err: std::string::FromUtf8Error },
+    #[fail(display = "bencode deserialize failed: {}", bencode_err)]
+    BencodeDeserializeError {
+        bencode_err: serde_bencode::error::Error,
+    },
+    #[fail(display = "Bencode format error")]
     BencodeFormatError(RespError),
+    #[fail(display = "Nrepl returned unsuccessful status: {}", status)]
+    ResponseStatusError { status: String },
 }
 
-impl std::convert::From<serde_bencode::error::Error> for Error {
-    fn from(err: serde_bencode::error::Error) -> Self {
-        Self::BencodeDeserializeError(err)
+impl From<serde_bencode::error::Error> for Error {
+    fn from(bencode_err: serde_bencode::error::Error) -> Self {
+        Self::BencodeDeserializeError { bencode_err }
     }
 }
 
-impl std::convert::From<RespError> for Error {
+impl From<std::io::Error> for Error {
+    fn from(ioerr: std::io::Error) -> Self {
+        Self::IOError { ioerr }
+    }
+}
+
+impl From<RespError> for Error {
     fn from(err: RespError) -> Self {
         Self::BencodeFormatError(err)
     }
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Nrepl Error: {}",
-            match self {
-                Error::ConnectionLost => format!("Connection lost!"),
-                Error::IOError(io_err) => format!("IO Error: {}", io_err),
-                Error::BencodeEncodeError(berr) => format!("Bencode encode error: {}", berr),
-                Error::BadBencodeString(utf8err) => format!("Bad string in bencode: {}", utf8err),
-                Error::DuplicatedKeyError(k) =>
-                    format!("Key {} was duplicated in response dict", k),
-                Error::BencodeDeserializeError(e) =>
-                    format!("Failed to deserialize bencode: {}", e),
-                Error::BencodeFormatError(e) => format!("Bad format of bencode: {}", e),
-            }
-        )
+impl From<BError> for Error {
+    fn from(berr: BError) -> Self {
+        Self::BencodeEncodeError { berr }
     }
 }
 
@@ -76,12 +75,6 @@ impl Op {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Resp(HashMap<String, BencodeValue>);
 
-// #[derive(Debug, Deserialize, Serialize)]
-// pub enum RespVal {
-//     Str(String),
-//     Array(Vec<String>),
-// }
-
 #[derive(Debug)]
 pub enum RespError {
     ExpectedMap(BencodeValue),
@@ -89,19 +82,6 @@ pub enum RespError {
     ExpectedStrOrArray(BencodeValue),
     BadUtf8(std::string::FromUtf8Error),
 }
-
-// impl std::convert::From<&RespVal> for JsonValue {
-//     fn from(v: &RespVal) -> JsonValue {
-//         match v {
-//             RespVal::Str(s) => JsonValue::String(s.clone()),
-//             RespVal::Array(ls) => JsonValue::Array(
-//                 ls.into_iter()
-//                     .map(|v| JsonValue::String(v.clone()))
-//                     .collect(),
-//             ),
-//         }
-//     }
-// }
 
 impl std::convert::From<std::string::FromUtf8Error> for RespError {
     fn from(err: std::string::FromUtf8Error) -> Self {
@@ -148,27 +128,6 @@ impl std::ops::DerefMut for Resp {
     }
 }
 
-// impl TryFrom<BencodeValue> for RespVal {
-//     type Error = RespError;
-
-//     fn try_from(val: BencodeValue) -> Result<Self, Self::Error> {
-//         match val {
-//             BencodeValue::Bytes(bs) => Ok(Self::Str(String::from_utf8(bs)?)),
-//             BencodeValue::List(ls) => {
-//                 let vals = ls
-//                     .into_iter()
-//                     .map(|v| match v {
-//                         BencodeValue::Bytes(bs) => Ok(String::from_utf8(bs)?),
-//                         v => Err(Self::Error::ExpectedString(v)),
-//                     })
-//                     .collect::<Result<Vec<String>, Self::Error>>()?;
-//                 Ok(Self::Array(vals))
-//             }
-//             v => Err(Self::Error::ExpectedStrOrArray(v)),
-//         }
-//     }
-// }
-
 impl TryFrom<BencodeValue> for Resp {
     type Error = RespError;
 
@@ -214,11 +173,43 @@ fn is_final_resp(resp: &Resp) -> bool {
     resp.contains_key("status")
 }
 
+fn get_status(resp: &Resp) -> Option<Vec<String>> {
+    if let Some(status) = resp.get("status") {
+        Some(bencode::try_into_str_vec(status.clone()).unwrap())
+    } else {
+        None
+    }
+}
+
+fn is_ok_resp(resp: &Resp) -> Option<bool> {
+    if let Some(status) = get_status(resp) {
+        Some(status == ["done"])
+    } else {
+        None
+    }
+}
+
+fn ok_resps(resps: Vec<Resp>) -> Result<Vec<Resp>, Error> {
+    for resp in resps.iter() {
+        if is_final_resp(&resp) {
+            if is_ok_resp(&resp).unwrap() {
+                return Ok(resps);
+            } else {
+                let status = get_status(&resp).unwrap();
+                return Err(Error::ResponseStatusError {
+                    status: status.join(","),
+                });
+            }
+        }
+    }
+    unreachable!()
+}
+
 /// It is responsible for communication with nrepl bencode socket
 
 impl NreplStream {
     pub fn connect_timeout(addr: &SocketAddr) -> Result<NreplStream, Error> {
-        TcpStream::connect_timeout(addr, Duration::new(3, 0))
+        let conn = TcpStream::connect_timeout(addr, Duration::new(3, 0))
             .and_then(|t| {
                 t.set_nonblocking(false)?;
                 t.set_read_timeout(Some(Duration::new(5, 0)))?;
@@ -227,17 +218,14 @@ impl NreplStream {
             .map(|s| NreplStream {
                 tcp: s,
                 socket_addr: addr.clone(),
-            })
-            .map_err(|e| Error::IOError(e))
+            })?;
+        Ok(conn)
     }
 
     fn send_op<T: Into<Op>>(&self, op: T) -> Result<(), Error> {
         let mut bw = BufWriter::new(&self.tcp);
-        let bencode = op
-            .into()
-            .to_bencode()
-            .map_err(|e| Error::BencodeEncodeError(e))?;
-        bw.write(&bencode).map_err(|e| Error::IOError(e))?;
+        let bencode = op.into().to_bencode()?;
+        bw.write(&bencode)?;
         Ok(())
     }
 
@@ -266,7 +254,8 @@ impl NreplStream {
             }
         }
 
-        Ok(resps)
+        // Ok(resps)
+        ok_resps(resps)
     }
 
     pub fn addr_string(&self) -> String {
@@ -280,22 +269,32 @@ pub trait NreplOp<T> {
     fn send(&self, nrepl: &NreplStream) -> Result<T, Self::Error>;
 }
 
+pub fn default_nrepl_port() -> Option<u32> {
+    std::fs::read_to_string(".nrepl-port")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+}
+
+pub fn port_addr(port: u32) -> SocketAddr {
+    format!("127.0.0.1:{}", port).parse().unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bencode;
+    use serde_bencode::value::Value as BencodeValue;
     use std::collections::HashMap;
     use std::iter::FromIterator;
 
     #[test]
     fn final_resp_test() {
-        let final_resp = HashMap::from_iter(
-            vec![("status".to_string(), bencode::Object::BBytes(vec![]))].into_iter(),
-        );
+        let final_resp = Resp(HashMap::from_iter(
+            vec![("status".to_string(), BencodeValue::Bytes(vec![]))].into_iter(),
+        ));
 
-        let not_final_resp = HashMap::from_iter(
-            vec![("foo".to_string(), bencode::Object::BBytes(vec![]))].into_iter(),
-        );
+        let not_final_resp = Resp(HashMap::from_iter(
+            vec![("foo".to_string(), BencodeValue::Bytes(vec![]))].into_iter(),
+        ));
 
         assert!(is_final_resp(&final_resp));
         assert!(!is_final_resp(&not_final_resp));

@@ -48,7 +48,7 @@ impl From<config::Error> for Error {
 }
 
 fn create_session(nrepl: &nrepl::NreplStream) -> Result<String, Error> {
-    let op = CloneSession { session: None };
+    let op = CloneSession::new(None);
 
     Ok(op.send(nrepl)?)
 }
@@ -94,7 +94,7 @@ fn load_session_id(n: &nrepl::NreplStream) -> Result<Option<String>, Error> {
 }
 
 fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool, Error> {
-    let op = LsSessions {};
+    let op = LsSessions::new();
 
     for session in op.send(n)? {
         if &session == session_id {
