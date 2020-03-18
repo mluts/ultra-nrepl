@@ -2,9 +2,9 @@ pub mod ops;
 pub mod session;
 
 use crate::bencode;
-use bendy::encoding::{Error as BError, SingleItemEncoder, ToBencode};
 use failure::Fail;
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_bencode::value::Value as BencodeValue;
 use std::collections::HashMap;
 use std::convert::{From, Into, TryFrom};
@@ -16,8 +16,6 @@ use std::time::Duration;
 
 #[derive(Debug, Fail)]
 pub enum Error {
-    #[fail(display = "failed to encode bencode: {}", berr)]
-    BencodeEncodeError { berr: BError },
     #[fail(display = "nrepl io error: {}", ioerr)]
     IOError { ioerr: std::io::Error },
     #[fail(display = "bencode string decode failed: {}", utf8err)]
@@ -30,6 +28,33 @@ pub enum Error {
     BencodeFormatError(RespError),
     #[fail(display = "Nrepl returned unsuccessful status: {}", status)]
     ResponseStatusError { status: String },
+}
+
+pub enum Status {
+    Done(Vec<Resp>),
+    NoInfo(Vec<Resp>),
+    EvalError(Vec<Resp>),
+    UnknownStatus(Vec<String>, Vec<Resp>),
+}
+
+impl Status {
+    pub fn name(&self) -> String {
+        match self {
+            Self::Done(_) => "done".to_string(),
+            Self::NoInfo(_) => "no-info".to_string(),
+            Self::EvalError(_) => "eval-error".to_string(),
+            Self::UnknownStatus(statuses, _) => statuses.join(","),
+        }
+    }
+
+    pub fn into_resps(self) -> Vec<Resp> {
+        match self {
+            Self::Done(resps) => resps,
+            Self::NoInfo(resps) => resps,
+            Self::EvalError(resps) => resps,
+            Self::UnknownStatus(_, resps) => resps,
+        }
+    }
 }
 
 impl From<serde_bencode::error::Error> for Error {
@@ -50,17 +75,12 @@ impl From<RespError> for Error {
     }
 }
 
-impl From<BError> for Error {
-    fn from(berr: BError) -> Self {
-        Self::BencodeEncodeError { berr }
-    }
-}
-
 pub struct NreplStream {
     tcp: TcpStream,
     socket_addr: SocketAddr,
 }
 
+#[derive(Debug)]
 pub struct Op {
     name: String,
     args: Vec<(String, String)>,
@@ -69,6 +89,23 @@ pub struct Op {
 impl Op {
     pub fn new(name: String, args: Vec<(String, String)>) -> Op {
         Op { name, args }
+    }
+}
+
+impl Serialize for Op {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = s.serialize_map(Some(1 + self.args.len()))?;
+
+        state.serialize_entry("op", &self.name)?;
+
+        for (k, v) in self.args.iter() {
+            state.serialize_entry(k, v)?;
+        }
+
+        state.end()
     }
 }
 
@@ -144,31 +181,6 @@ impl TryFrom<BencodeValue> for Resp {
     }
 }
 
-impl ToBencode for Op {
-    const MAX_DEPTH: usize = 3;
-
-    fn encode(&self, encoder: SingleItemEncoder) -> Result<(), BError> {
-        encoder.emit_dict(|mut e| {
-            let mut pairs: Vec<(&str, &str)> = vec![];
-
-            pairs.push(("op", &self.name));
-
-            for (argname, argval) in self.args.iter() {
-                pairs.push((argname, argval));
-            }
-
-            pairs.sort();
-
-            for (argname, argval) in pairs.into_iter() {
-                e.emit_pair(&argname.clone().as_bytes(), argval)?;
-            }
-
-            Ok(())
-        })?;
-        Ok(())
-    }
-}
-
 fn is_final_resp(resp: &Resp) -> bool {
     resp.contains_key("status")
 }
@@ -181,24 +193,19 @@ fn get_status(resp: &Resp) -> Option<Vec<String>> {
     }
 }
 
-fn is_ok_resp(resp: &Resp) -> Option<bool> {
-    if let Some(status) = get_status(resp) {
-        Some(status == ["done"])
-    } else {
-        None
-    }
-}
-
-fn ok_resps(resps: Vec<Resp>) -> Result<Vec<Resp>, Error> {
+fn parse_resps(resps: Vec<Resp>) -> Result<Status, Error> {
     for resp in resps.iter() {
         if is_final_resp(&resp) {
-            if is_ok_resp(&resp).unwrap() {
-                return Ok(resps);
+            let status = get_status(&resp).unwrap();
+
+            if status == ["done"] {
+                return Ok(Status::Done(resps));
+            } else if status == ["eval-error"] {
+                return Ok(Status::EvalError(resps));
+            } else if status == ["done", "no-info"] {
+                return Ok(Status::NoInfo(resps));
             } else {
-                let status = get_status(&resp).unwrap();
-                return Err(Error::ResponseStatusError {
-                    status: status.join(","),
-                });
+                return Ok(Status::UnknownStatus(status, resps));
             }
         }
     }
@@ -224,7 +231,7 @@ impl NreplStream {
 
     fn send_op<T: Into<Op>>(&self, op: T) -> Result<(), Error> {
         let mut bw = BufWriter::new(&self.tcp);
-        let bencode = op.into().to_bencode()?;
+        let bencode = serde_bencode::to_bytes(&op.into())?;
         bw.write(&bencode)?;
         Ok(())
     }
@@ -238,7 +245,7 @@ impl NreplStream {
     }
 
     /// Serializes given `op` and sends to Nrepl socket using given transport
-    pub fn op<T: Into<Op>>(&self, op: T) -> Result<Vec<Resp>, Error> {
+    pub fn op<T: Into<Op>>(&self, op: T) -> Result<Status, Error> {
         let mut resps: Vec<Resp> = vec![];
 
         self.send_op(op)?;
@@ -254,8 +261,7 @@ impl NreplStream {
             }
         }
 
-        // Ok(resps)
-        ok_resps(resps)
+        parse_resps(resps)
     }
 
     pub fn addr_string(&self) -> String {

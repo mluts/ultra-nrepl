@@ -95,7 +95,7 @@ pub fn run(matches: &ArgMatches, nrepl_stream: &nrepl::NreplStream) {
         Ok(opts) => {
             let op = nrepl::Op::new(opts.op, opts.op_args);
 
-            for resp in nrepl_stream.op(op).unwrap() {
+            for resp in nrepl_stream.op(op).unwrap().into_resps() {
                 println!("{}", to_json_string(&resp).unwrap());
             }
         }

@@ -1,20 +1,26 @@
 use crate::bencode as bc;
 use crate::nrepl;
 use failure::Fail;
+use serde::Serialize;
 use std::convert::From;
 
 #[derive(Debug, Fail)]
 pub enum Error {
-    #[fail(display = "nrepl error: {}", nrepl_err)]
+    #[fail(display = "nrepl error when sending op: {}", nrepl_err)]
     NreplError { nrepl_err: nrepl::Error },
-    #[fail(display = "no session id in response")]
-    NoSessionIdInResponse,
-    #[fail(display = "no sessions list in response")]
-    NoSessionsInResponse,
-    #[fail(display = "failed converting bencode to string: {}", bcerr)]
-    ToStringError { bcerr: bc::Error },
-    #[fail(display = "field was not found: {}", field)]
-    FieldNotFound { field: String },
+    #[fail(display = "sent `{}`, but no session id in response", op)]
+    NoSessionIdInResponse { op: String },
+    #[fail(display = "Sent `{}`, but no sessions list in response", op)]
+    NoSessionsInResponse { op: String },
+    #[fail(display = "failed converting bencode when decoded op: {}", bcerr)]
+    BencodeConvertError { bcerr: bc::Error },
+    #[fail(
+        display = "Sent `{}`, expected to find field `{}`, but it wasn't in nrepl response",
+        op, field
+    )]
+    FieldNotFound { op: String, field: String },
+    #[fail(display = "Unexpected nrepl status: {}", status)]
+    BadStatus { status: String },
 }
 
 impl From<nrepl::Error> for Error {
@@ -25,7 +31,7 @@ impl From<nrepl::Error> for Error {
 
 impl From<bc::Error> for Error {
     fn from(e: bc::Error) -> Error {
-        Self::ToStringError { bcerr: e }
+        Self::BencodeConvertError { bcerr: e }
     }
 }
 
@@ -55,12 +61,21 @@ impl nrepl::NreplOp<String> for CloneSession {
     type Error = Error;
 
     fn send(&self, n: &nrepl::NreplStream) -> Result<String, Error> {
-        for mut resp in n.op(self)? {
-            if let Some(session_id) = resp.remove("new-session") {
-                return Ok(bc::try_into_string(session_id)?);
+        match n.op(self)? {
+            nrepl::Status::Done(resps) => {
+                for mut resp in resps {
+                    if let Some(session_id) = resp.remove("new-session") {
+                        return Ok(bc::try_into_string(session_id)?);
+                    }
+                }
+                return Err(Error::NoSessionIdInResponse {
+                    op: "clone".to_string(),
+                });
             }
+            status => Err(Error::BadStatus {
+                status: status.name(),
+            }),
         }
-        Err(Error::NoSessionIdInResponse)
     }
 }
 
@@ -82,30 +97,56 @@ impl nrepl::NreplOp<Vec<String>> for LsSessions {
     type Error = Error;
 
     fn send(self: &LsSessions, n: &nrepl::NreplStream) -> Result<Vec<String>, Error> {
-        for mut resp in n.op(self)? {
-            if let Some(sessions) = resp.remove("sessions") {
-                return Ok(bc::try_into_str_vec(sessions)?);
+        match n.op(self)? {
+            nrepl::Status::Done(resps) => {
+                for mut resp in resps {
+                    if let Some(sessions) = resp.remove("sessions") {
+                        return Ok(bc::try_into_str_vec(sessions)?);
+                    }
+                }
+                return Err(Error::NoSessionsInResponse {
+                    op: "ls-sessions".to_string(),
+                });
             }
+
+            status => Err(Error::BadStatus {
+                status: status.name(),
+            }),
         }
-        Err(Error::NoSessionsInResponse)
     }
 }
 
 pub struct Info {
     ns: String,
     symbol: String,
+    session: String,
 }
 
+#[derive(Debug, Serialize)]
 pub struct InfoResponse {
-    line: u32,
-    col: u32,
-    file: String,
-    resource: String,
-    doc: String,
+    pub line: i64,
+    pub col: Option<i64>,
+    pub file: String,
+    pub resource: String,
+    pub doc: String,
+}
+
+pub enum InfoResponseType {
+    Ns(InfoResponse),
+    Symbol(InfoResponse),
+}
+
+impl InfoResponseType {
+    pub fn into_resp(self) -> InfoResponse {
+        match self {
+            Self::Ns(r) => r,
+            Self::Symbol(r) => r,
+        }
+    }
 }
 
 impl InfoResponse {
-    pub fn new(line: u32, col: u32, file: String, resource: String, doc: String) -> Self {
+    pub fn new(line: i64, col: Option<i64>, file: String, resource: String, doc: String) -> Self {
         Self {
             line,
             col,
@@ -117,41 +158,117 @@ impl InfoResponse {
 }
 
 impl Info {
-    pub fn new(ns: String, symbol: String) -> Self {
-        Self { ns, symbol }
+    pub fn new(session: String, ns: String, symbol: String) -> Self {
+        Self {
+            session,
+            ns,
+            symbol,
+        }
     }
 }
 
 impl From<&Info> for nrepl::Op {
-    fn from(Info { ns, symbol }: &Info) -> nrepl::Op {
+    fn from(
+        Info {
+            session,
+            ns,
+            symbol,
+        }: &Info,
+    ) -> nrepl::Op {
         nrepl::Op::new(
             "info".to_string(),
             vec![
                 ("symbol".to_string(), symbol.to_string()),
                 ("ns".to_string(), ns.to_string()),
+                ("session".to_string(), session.to_string()),
             ],
         )
     }
 }
 
-// impl nrepl::NreplOp<InfoResponse> for Info {
-//     type Error = Error;
+fn get_int_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<i64>, Error> {
+    if let Some(n) = resp.remove(k) {
+        Ok(Some(bc::try_into_int(n)?))
+    } else {
+        Ok(None)
+    }
+}
 
-//     fn send(self: &Info, n: &nrepl::NreplStream) -> Result<InfoResponse, Error> {
-//         let mut resps = n.op(self)?;
-//         let resp = resps.pop().unwrap();
-//         let line: Result<i64, Self::Error> = resp
-//             .remove("line")
-//             .ok_or(Err(Error::FieldNotFound {
-//                 field: "line".to_string(),
-//             })).and_then(|n| {
-//                 bc::try_into_int(n)
-//             });
+fn get_str_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<String>, Error> {
+    if let Some(s) = resp.remove(k) {
+        Ok(Some(bc::try_into_string(s)?))
+    } else {
+        Ok(None)
+    }
+}
 
-//         // InfoResponse::new(
+impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
+    type Error = Error;
 
-//         // );
+    fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Error> {
+        match n.op(self)? {
+            nrepl::Status::Done(mut resps) => {
+                let mut resp = resps.pop().unwrap();
+                let line: i64 =
+                    get_int_bencode(&mut resp, "line")?.ok_or(Error::FieldNotFound {
+                        op: "info".to_string(),
+                        field: "line".to_string(),
+                    })?;
+                let column: Option<i64> = get_int_bencode(&mut resp, "column")?;
+                let file: String =
+                    get_str_bencode(&mut resp, "file")?.ok_or(Error::FieldNotFound {
+                        op: "info".to_string(),
+                        field: "file".to_string(),
+                    })?;
+                let resource: String =
+                    get_str_bencode(&mut resp, "resource")?.ok_or(Error::FieldNotFound {
+                        op: "info".to_string(),
+                        field: "resource".to_string(),
+                    })?;
 
-//         Err(Error::NoSessionsInResponse)
-//     }
-// }
+                let doc: Option<String> = get_str_bencode(&mut resp, "doc")?;
+                let name: Option<String> = get_str_bencode(&mut resp, "name")?;
+                let arglist: Option<String> = get_str_bencode(&mut resp, "arglists-str")?;
+                let ns: Option<String> = get_str_bencode(&mut resp, "ns")?;
+
+                if column.is_none() && name.is_none() && arglist.is_none() {
+                    Ok(Some(InfoResponseType::Ns(InfoResponse::new(
+                        line,
+                        column,
+                        file,
+                        resource,
+                        format!(
+                            "{}\n{}",
+                            &ns.unwrap_or("".to_string()),
+                            &doc.unwrap_or("".to_string())
+                        ),
+                    ))))
+                } else {
+                    Ok(Some(InfoResponseType::Symbol(InfoResponse::new(
+                        line,
+                        column,
+                        file,
+                        resource,
+                        format!(
+                            "{}/{}\n{}\n{}",
+                            &ns.unwrap_or("".to_string()),
+                            &name.unwrap_or("".to_string()),
+                            &arglist
+                                .unwrap_or("".to_string())
+                                .split("\n")
+                                .map(|s| format!("({})", s))
+                                .collect::<Vec<String>>()
+                                .join("\n"),
+                            &doc.unwrap_or("".to_string()),
+                        ),
+                    ))))
+                }
+            }
+
+            nrepl::Status::NoInfo(_) => Ok(None),
+            status => Err(Error::BadStatus {
+                status: status.name(),
+            }),
+        }
+    }
+}

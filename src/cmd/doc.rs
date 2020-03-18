@@ -20,8 +20,8 @@ impl Opts {
 }
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
-    clap_app!(find_def =>
-        (about: "Shows position of ns/symbol")
+    clap_app!(doc =>
+        (about: "Shows DOC for symbol")
         (@arg NS: +required "NS")
         (@arg SYMBOL: +required "SYMBOL")
     )
@@ -34,27 +34,6 @@ pub fn run(matches: &ArgMatches, nrepl_stream: &nrepl::NreplStream) {
     let res = cmd::die_if_err(op.send(nrepl_stream));
 
     if let Some(res) = res {
-        match res {
-            ops::InfoResponseType::Ns(res) => {
-                cmd::print_parseable(&vec![
-                    ("IS-NS", "TRUE"),
-                    ("LINE", &res.line.to_string()),
-                    ("FILE", &res.file),
-                    ("RESOURCE", &res.resource),
-                ]);
-            }
-
-            ops::InfoResponseType::Symbol(res) => {
-                cmd::print_parseable(&vec![
-                    ("IS-SYMBOL", "TRUE"),
-                    ("LINE", &res.line.to_string()),
-                    ("COLUMN", &res.col.unwrap().to_string()),
-                    ("FILE", &res.file),
-                    ("RESOURCE", &res.resource),
-                ]);
-            }
-        }
-    } else {
-        cmd::print_parseable(&vec![("IS-EMPTY", "TRUE")]);
+        println!("{}", res.into_resp().doc);
     }
 }
