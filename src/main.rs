@@ -1,6 +1,8 @@
 use clap::{clap_app, ArgMatches};
 use ultra_nrepl::cmd;
 use ultra_nrepl::nrepl;
+use ultra_nrepl::nrepl::ops;
+use ultra_nrepl::nrepl::NreplOp;
 
 // fn show_session_id(nrepl_stream: &nrepl::NreplStream) {
 //     let sid = ultra_nrepl::nrepl::session::get_existing_session_id(&nrepl_stream).unwrap();
@@ -27,12 +29,19 @@ fn nrepl_stream(arg: &ArgMatches) -> nrepl::NreplStream {
     }
 }
 
+fn show_ns(argm: &ArgMatches, n: &nrepl::NreplStream) {
+    let file = argm.value_of("FILE").unwrap();
+    let op = ops::GetNsName::new(file.to_string());
+    println!("NS: {}", op.send(n).unwrap().unwrap());
+}
+
 fn main() {
     let mut app = clap_app!(ultra_nrepl =>
         (version: "0.1")
         (author: "Michael Lutsiuk <michael.lutsiuk@gmail.com>")
         (@arg PORT: +takes_value -p --port "Nrepl port")
     )
+    .subcommand(clap_app!(show_ns => (@arg FILE: +takes_value "File")))
     .subcommand(cmd::op::app())
     .subcommand(cmd::find_def::app())
     .subcommand(cmd::doc::app());
@@ -44,6 +53,7 @@ fn main() {
         ("op", Some(argm)) => cmd::op::run(&argm, &nrepl_stream),
         ("find_def", Some(argm)) => cmd::find_def::run(&argm, &nrepl_stream),
         ("doc", Some(argm)) => cmd::doc::run(&argm, &nrepl_stream),
+        ("show_ns", Some(argm)) => show_ns(&argm, &nrepl_stream),
         // ("session_id", Some(_)) => show_session_id(&nrepl_stream),
         _ => {
             app.print_help().unwrap();

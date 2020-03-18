@@ -205,7 +205,7 @@ fn get_str_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<String>, Er
 impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
     type Error = Error;
 
-    fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Error> {
+    fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Self::Error> {
         match n.op(self)? {
             nrepl::Status::Done(mut resps) => {
                 let mut resp = resps.pop().unwrap();
@@ -266,6 +266,58 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
             }
 
             nrepl::Status::NoInfo(_) => Ok(None),
+            status => Err(Error::BadStatus {
+                status: status.name(),
+            }),
+        }
+    }
+}
+
+pub struct GetNsName {
+    source_path: String,
+}
+
+impl GetNsName {
+    pub fn new(source_path: String) -> Self {
+        Self { source_path }
+    }
+}
+
+impl From<&GetNsName> for nrepl::Op {
+    fn from(GetNsName { source_path }: &GetNsName) -> nrepl::Op {
+        nrepl::Op::new(
+            "eval".to_string(),
+            vec![(
+                "code".to_string(),
+                format!(
+                    "
+             (do
+                (require 'clojure.tools.namespace.file)
+                (nth (clojure.tools.namespace.file/read-file-ns-decl \"{}\") 1)
+             )",
+                    source_path
+                ),
+            )],
+        )
+    }
+}
+
+impl nrepl::NreplOp<Option<String>> for GetNsName {
+    type Error = Error;
+
+    fn send(&self, n: &nrepl::NreplStream) -> Result<Option<String>, Self::Error> {
+        match n.op(self)? {
+            nrepl::Status::Done(resps) => {
+                let mut value: Option<String> = None;
+
+                for mut resp in resps {
+                    if let Some(val) = resp.remove("value") {
+                        value = Some(bc::try_into_string(val)?)
+                    }
+                }
+                Ok(value)
+            }
+
             status => Err(Error::BadStatus {
                 status: status.name(),
             }),
