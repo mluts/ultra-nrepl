@@ -42,7 +42,7 @@ impl Opts {
 pub fn app<'a, 'b>() -> App<'a, 'b> {
     clap_app!(find_def =>
         (about: "Shows position of ns/symbol")
-        (@arg FILE: +required "NS")
+        (@arg FILE: +required "FILE with NS containing symbol")
         (@arg SYMBOL: +required "SYMBOL")
     )
 }
