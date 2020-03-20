@@ -207,12 +207,15 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
         match n.op(self)? {
             nrepl::Status::Done(mut resps) => {
                 let mut resp = resps.pop().unwrap();
-                let line: i64 =
-                    get_int_bencode(&mut resp, "line")?.ok_or(Error::FieldNotFound {
-                        op: "info".to_string(),
-                        field: "line".to_string(),
-                    })?;
+                let line: Option<i64> = get_int_bencode(&mut resp, "line")?;
                 let column: Option<i64> = get_int_bencode(&mut resp, "column")?;
+
+                if let Some(v) = resp.get("file") {
+                    if let serde_bencode::value::Value::List(_) = v {
+                        return Ok(None);
+                    }
+                }
+
                 let file: String =
                     get_str_bencode(&mut resp, "file")?.ok_or(Error::FieldNotFound {
                         op: "info".to_string(),
@@ -229,9 +232,9 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
                 let arglist: Option<String> = get_str_bencode(&mut resp, "arglists-str")?;
                 let ns: Option<String> = get_str_bencode(&mut resp, "ns")?;
 
-                if column.is_none() && name.is_none() && arglist.is_none() {
+                if line.is_some() && column.is_none() && name.is_none() && arglist.is_none() {
                     Ok(Some(InfoResponseType::Ns(InfoResponse::new(
-                        line,
+                        line.unwrap(),
                         column,
                         file,
                         resource,
@@ -243,7 +246,7 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
                     ))))
                 } else {
                     Ok(Some(InfoResponseType::Symbol(InfoResponse::new(
-                        line,
+                        line.unwrap(),
                         column,
                         file,
                         resource,

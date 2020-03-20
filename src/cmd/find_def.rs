@@ -57,9 +57,15 @@ fn parse_file(path: String) -> Result<File, FileError> {
             let jar_path = parts.get(2).unwrap();
             let jar_parts: Vec<&str> = jar_path.split("!").collect();
 
+            let mut f = jar_parts.get(1).unwrap().to_string();
+
+            if f.starts_with("/") {
+                f.remove(0);
+            }
+
             Ok(File::Jar {
                 jar: jar_parts.get(0).unwrap().to_string(),
-                file: jar_parts.get(1).unwrap().to_string(),
+                file: f,
             })
         }
         "file" => Ok(File::File(parts.get(1).unwrap().to_string())),

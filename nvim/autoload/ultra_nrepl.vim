@@ -30,13 +30,24 @@ function! ultra_nrepl#FindDef() abort
     elseif parts[0] ==# 'JAR'
       let l:jar = parts[1]
     endif
-
-    if exists('l:jar')
-      call s:Warn('JAR is not supported yet')
-      return
-    endif
-
   endfor
+
+  " echo [l:file, l:linenum, l:column]
+
+  if exists('l:jar')
+    let content_cmd = ultra_nrepl#GetCmd() . ' read_jar ' . l:jar . ' ' . l:file
+    let contents = systemlist(content_cmd)
+
+    let winview = winsaveview()  " Save the current cursor position
+
+    let l:tmpfname = tempname() . '.clj'
+
+    call writefile(contents, l:tmpfname)
+
+    call s:JumpToLocation(l:tmpfname, l:linenum, l:column)
+
+    return
+  endif
 
   if !exists('l:file')
     return
