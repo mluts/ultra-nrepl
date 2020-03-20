@@ -7,7 +7,7 @@ pub fn die_err(msg: &str) -> ! {
     std::process::exit(1);
 }
 
-pub fn print_parseable(data: &Vec<(&str, &str)>) {
+pub fn print_parseable(data: &Vec<(&str, String)>) {
     for (k, v) in data {
         println!("{} {}", k.to_uppercase(), v)
     }

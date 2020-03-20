@@ -4,11 +4,6 @@ use ultra_nrepl::nrepl;
 use ultra_nrepl::nrepl::ops;
 use ultra_nrepl::nrepl::NreplOp;
 
-// fn show_session_id(nrepl_stream: &nrepl::NreplStream) {
-//     let sid = ultra_nrepl::nrepl::session::get_existing_session_id(&nrepl_stream).unwrap();
-//     println!("Session id: {}", sid);
-// }
-
 fn nrepl_stream(arg: &ArgMatches) -> nrepl::NreplStream {
     let port = if let Some(port_str) = arg.value_of("PORT") {
         match port_str.parse::<u32>() {

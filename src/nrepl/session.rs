@@ -1,9 +1,9 @@
 use crate::config;
 use crate::nrepl;
 use crate::nrepl::NreplOp;
-use failure::Fail;
+use failure::{Error as StdError, Fail};
 use fs2::FileExt;
-use nrepl::ops;
+// use nrepl::ops;
 use nrepl::ops::{CloneSession, LsSessions};
 use serde_bencode::value::Value as BencodeValue;
 use std::collections::HashMap;
@@ -15,29 +15,13 @@ pub enum Error {
     IOError { ioerr: std::io::Error },
     #[fail(display = "expected session id string, but had: {:?}", bencode)]
     BadSessionIdValue { bencode: BencodeValue },
-    #[fail(display = "failed to parse sessions json")]
-    JsonError(serde_json::error::Error),
-    #[fail(display = "op error: {}", operr)]
-    OpError { operr: ops::Error },
     #[fail(display = "config error: {}", cfgerr)]
     ConfigError { cfgerr: config::Error },
-}
-
-impl From<serde_json::error::Error> for Error {
-    fn from(e: serde_json::error::Error) -> Self {
-        Self::JsonError(e)
-    }
 }
 
 impl From<std::io::Error> for Error {
     fn from(ioerr: std::io::Error) -> Error {
         Self::IOError { ioerr }
-    }
-}
-
-impl From<ops::Error> for Error {
-    fn from(operr: ops::Error) -> Self {
-        Self::OpError { operr }
     }
 }
 
@@ -47,13 +31,13 @@ impl From<config::Error> for Error {
     }
 }
 
-fn create_session(nrepl: &nrepl::NreplStream) -> Result<String, Error> {
+fn create_session(nrepl: &nrepl::NreplStream) -> Result<String, StdError> {
     let op = CloneSession::new(None);
 
     Ok(op.send(nrepl)?)
 }
 
-fn save_session_id(n: &nrepl::NreplStream, session_id: &String) -> Result<(), Error> {
+fn save_session_id(n: &nrepl::NreplStream, session_id: &String) -> Result<(), StdError> {
     config::ensure_config_dir()?;
 
     let mut f = std::fs::OpenOptions::new()
@@ -93,7 +77,7 @@ fn load_session_id(n: &nrepl::NreplStream) -> Result<Option<String>, Error> {
     Ok(sid)
 }
 
-fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool, Error> {
+fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool, StdError> {
     let op = LsSessions::new();
 
     for session in op.send(n)? {
@@ -105,7 +89,7 @@ fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool
     Ok(false)
 }
 
-pub fn get_existing_session_id(n: &nrepl::NreplStream) -> Result<String, Error> {
+pub fn get_existing_session_id(n: &nrepl::NreplStream) -> Result<String, StdError> {
     let mb_session_id = load_session_id(n)?;
 
     if let Some(existing_session_id) = mb_session_id {

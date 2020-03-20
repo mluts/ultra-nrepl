@@ -1,6 +1,6 @@
 use crate::bencode as bc;
 use crate::nrepl;
-use failure::Fail;
+use failure::{Error as StdError, Fail};
 use serde::Serialize;
 use std::convert::From;
 
@@ -29,12 +29,6 @@ impl From<nrepl::Error> for Error {
     }
 }
 
-impl From<bc::Error> for Error {
-    fn from(e: bc::Error) -> Error {
-        Self::BencodeConvertError { bcerr: e }
-    }
-}
-
 pub struct CloneSession {
     session: Option<String>,
 }
@@ -58,9 +52,9 @@ impl From<&CloneSession> for nrepl::Op {
 }
 
 impl nrepl::NreplOp<String> for CloneSession {
-    type Error = Error;
+    type Error = StdError;
 
-    fn send(&self, n: &nrepl::NreplStream) -> Result<String, Error> {
+    fn send(&self, n: &nrepl::NreplStream) -> Result<String, StdError> {
         match n.op(self)? {
             nrepl::Status::Done(resps) => {
                 for mut resp in resps {
@@ -70,11 +64,13 @@ impl nrepl::NreplOp<String> for CloneSession {
                 }
                 return Err(Error::NoSessionIdInResponse {
                     op: "clone".to_string(),
-                });
+                }
+                .into());
             }
             status => Err(Error::BadStatus {
                 status: status.name(),
-            }),
+            }
+            .into()),
         }
     }
 }
@@ -94,9 +90,9 @@ impl From<&LsSessions> for nrepl::Op {
 }
 
 impl nrepl::NreplOp<Vec<String>> for LsSessions {
-    type Error = Error;
+    type Error = StdError;
 
-    fn send(self: &LsSessions, n: &nrepl::NreplStream) -> Result<Vec<String>, Error> {
+    fn send(self: &LsSessions, n: &nrepl::NreplStream) -> Result<Vec<String>, Self::Error> {
         match n.op(self)? {
             nrepl::Status::Done(resps) => {
                 for mut resp in resps {
@@ -106,12 +102,14 @@ impl nrepl::NreplOp<Vec<String>> for LsSessions {
                 }
                 return Err(Error::NoSessionsInResponse {
                     op: "ls-sessions".to_string(),
-                });
+                }
+                .into());
             }
 
             status => Err(Error::BadStatus {
                 status: status.name(),
-            }),
+            }
+            .into()),
         }
     }
 }
@@ -186,7 +184,7 @@ impl From<&Info> for nrepl::Op {
     }
 }
 
-fn get_int_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<i64>, Error> {
+fn get_int_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<i64>, StdError> {
     if let Some(n) = resp.remove(k) {
         Ok(Some(bc::try_into_int(n)?))
     } else {
@@ -194,7 +192,7 @@ fn get_int_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<i64>, Error
     }
 }
 
-fn get_str_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<String>, Error> {
+fn get_str_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<String>, StdError> {
     if let Some(s) = resp.remove(k) {
         Ok(Some(bc::try_into_string(s)?))
     } else {
@@ -203,7 +201,7 @@ fn get_str_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<String>, Er
 }
 
 impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
-    type Error = Error;
+    type Error = StdError;
 
     fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Self::Error> {
         match n.op(self)? {
@@ -268,7 +266,8 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
             nrepl::Status::NoInfo(_) => Ok(None),
             status => Err(Error::BadStatus {
                 status: status.name(),
-            }),
+            }
+            .into()),
         }
     }
 }
@@ -303,7 +302,7 @@ impl From<&GetNsName> for nrepl::Op {
 }
 
 impl nrepl::NreplOp<Option<String>> for GetNsName {
-    type Error = Error;
+    type Error = StdError;
 
     fn send(&self, n: &nrepl::NreplStream) -> Result<Option<String>, Self::Error> {
         match n.op(self)? {
@@ -320,7 +319,8 @@ impl nrepl::NreplOp<Option<String>> for GetNsName {
 
             status => Err(Error::BadStatus {
                 status: status.name(),
-            }),
+            }
+            .into()),
         }
     }
 }
