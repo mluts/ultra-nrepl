@@ -39,6 +39,7 @@ fn main() {
     .subcommand(clap_app!(show_ns => (@arg FILE: +takes_value "File")))
     .subcommand(cmd::op::app())
     .subcommand(cmd::find_def::app())
+    .subcommand(cmd::read_jar::app())
     .subcommand(cmd::doc::app());
 
     let matches = app.clone().get_matches();
@@ -49,6 +50,7 @@ fn main() {
         ("find_def", Some(argm)) => cmd::find_def::run(&argm, &nrepl_stream),
         ("doc", Some(argm)) => cmd::doc::run(&argm, &nrepl_stream),
         ("show_ns", Some(argm)) => show_ns(&argm, &nrepl_stream),
+        ("read_jar", Some(argm)) => cmd::read_jar::run(&argm),
         // ("session_id", Some(_)) => show_session_id(&nrepl_stream),
         _ => {
             app.print_help().unwrap();

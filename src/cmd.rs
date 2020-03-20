@@ -1,6 +1,7 @@
 pub mod find_def;
 pub mod op;
 pub mod doc;
+pub mod read_jar;
 
 pub fn die_err(msg: &str) -> ! {
     eprintln!("{}", msg);
