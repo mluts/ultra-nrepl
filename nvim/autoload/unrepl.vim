@@ -32,8 +32,6 @@ function! unrepl#FindDef() abort
     endif
   endfor
 
-  " echo [l:file, l:linenum, l:column]
-
   if exists('l:jar')
     let content_cmd = unrepl#GetCmd() . ' read_jar ' . l:jar . ' ' . l:file
     let contents = systemlist(content_cmd)
@@ -56,13 +54,25 @@ function! unrepl#FindDef() abort
   call s:JumpToLocation(l:file, l:linenum, l:column)
 endfunction
 
+function! unrepl#Doc() abort
+  if s:ErrorCheck()
+    return
+  endif
+
+  let symbol = expand('<cword>')
+  let fname = expand('%:p')
+  let cmd = unrepl#GetCmd() . ' doc ' . fname . ' ' . symbol
+
+  echo system(cmd)
+endfunction
+
 function! s:Warn(msg) abort
     echohl WarningMsg | echomsg a:msg | echohl NONE
 endfunction
 
 function! s:ErrorCheck() abort
     if !executable(unrepl#GetCmd())
-        call s:Warn('No racer executable found in $PATH (' . $PATH . ')')
+        call s:Warn('No unrepl executable found in $PATH (' . $PATH . ')')
         return 1
     endif
 endfunction

@@ -42,36 +42,22 @@ pub fn to_json_string(resp: &nrepl::Resp) -> Result<String, json_error::Error> {
     serde_json::to_string(&hm)
 }
 
-fn parse_op_arg(s: &str) -> Option<(String, String)> {
-    let parts = s.split("=").collect::<Vec<&str>>();
-
-    match parts.len() {
-        2 => Some((parts[0].to_string(), parts[1].to_string())),
-        _ => None,
-    }
-}
-
 impl Opts {
     fn parse(matches: &ArgMatches) -> Result<Opts, OptsParseError> {
         let op = matches.value_of("OP").unwrap();
-
-        let op_args = matches
+        let op_args: Vec<(String, String)> = matches
             .values_of("OP_ARG")
-            .map(|vs| vs.map(|v| v.to_string()).collect::<Vec<String>>())
+            .map(|v| v.collect())
             .unwrap_or(vec![])
-            .iter()
-            .fold(
-                Ok(vec![]),
-                |acc: Result<Vec<(String, String)>, OptsParseError>, op_arg| {
-                    acc.and_then(|mut op_opts| match parse_op_arg(op_arg) {
-                        Some(args) => {
-                            op_opts.push(args);
-                            Ok(op_opts)
-                        }
-                        None => Err(OptsParseError::BadOpArg(op_arg.to_string())),
-                    })
-                },
-            )?;
+            .into_iter()
+            .map(|v| {
+                let parts = v.split("=").collect::<Vec<&str>>();
+                match parts.len() {
+                    2 => Ok((parts[0].to_string(), parts[1].to_string())),
+                    _ => Err(OptsParseError::BadOpArg(parts.join("="))),
+                }
+            })
+            .collect::<Result<Vec<(String, String)>, OptsParseError>>()?;
 
         let opts = Opts {
             op: op.to_string(),

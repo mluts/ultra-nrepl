@@ -33,6 +33,7 @@ pub enum Error {
 pub enum Status {
     Done(Vec<Resp>),
     NoInfo(Vec<Resp>),
+    UnknownOp(String, Vec<Resp>),
     EvalError(Vec<Resp>),
     UnknownStatus(Vec<String>, Vec<Resp>),
 }
@@ -44,6 +45,7 @@ impl Status {
             Self::NoInfo(_) => "no-info".to_string(),
             Self::EvalError(_) => "eval-error".to_string(),
             Self::UnknownStatus(statuses, _) => statuses.join(","),
+            Self::UnknownOp(_op, _) => "Unknown Op".to_string(),
         }
     }
 
@@ -53,6 +55,7 @@ impl Status {
             Self::NoInfo(resps) => resps,
             Self::EvalError(resps) => resps,
             Self::UnknownStatus(_, resps) => resps,
+            Self::UnknownOp(_, resps) => resps,
         }
     }
 }
@@ -204,6 +207,8 @@ fn parse_resps(resps: Vec<Resp>) -> Result<Status, Error> {
                 return Ok(Status::EvalError(resps));
             } else if status == ["done", "no-info"] {
                 return Ok(Status::NoInfo(resps));
+            } else if status.iter().any(|s| s == "unknown-op") {
+                return Ok(Status::UnknownOp(status.join(","), resps));
             } else {
                 return Ok(Status::UnknownStatus(status, resps));
             }

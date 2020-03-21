@@ -6,14 +6,10 @@ use std::convert::From;
 
 #[derive(Debug, Fail)]
 pub enum Error {
-    #[fail(display = "nrepl error when sending op: {}", nrepl_err)]
-    NreplError { nrepl_err: nrepl::Error },
     #[fail(display = "sent `{}`, but no session id in response", op)]
     NoSessionIdInResponse { op: String },
     #[fail(display = "Sent `{}`, but no sessions list in response", op)]
     NoSessionsInResponse { op: String },
-    #[fail(display = "failed converting bencode when decoded op: {}", bcerr)]
-    BencodeConvertError { bcerr: bc::Error },
     #[fail(
         display = "Sent `{}`, expected to find field `{}`, but it wasn't in nrepl response",
         op, field
@@ -21,12 +17,6 @@ pub enum Error {
     FieldNotFound { op: String, field: String },
     #[fail(display = "Unexpected nrepl status: {}", status)]
     BadStatus { status: String },
-}
-
-impl From<nrepl::Error> for Error {
-    fn from(e: nrepl::Error) -> Self {
-        Self::NreplError { nrepl_err: e }
-    }
 }
 
 pub struct CloneSession {
@@ -200,6 +190,13 @@ fn get_str_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<String>, St
     }
 }
 
+fn get_str_list_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<Vec<String>>, StdError> {
+    if let Some(sl) = resp.remove(k) {
+        Ok(Some(bc::try_into_str_vec(sl)?))
+    } else {
+        Ok(None)
+    }
+}
 impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
     type Error = StdError;
 
@@ -231,37 +228,53 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
                 let name: Option<String> = get_str_bencode(&mut resp, "name")?;
                 let arglist: Option<String> = get_str_bencode(&mut resp, "arglists-str")?;
                 let ns: Option<String> = get_str_bencode(&mut resp, "ns")?;
+                let is_macro: Option<String> = get_str_bencode(&mut resp, "macro")?;
+                let spec: Option<String> =
+                    get_str_list_bencode(&mut resp, "spec")?.map(|spec_list| spec_list.join(" "));
+                let docstr: String;
 
                 if line.is_some() && column.is_none() && name.is_none() && arglist.is_none() {
+                    docstr = vec![ns, doc]
+                        .into_iter()
+                        .flat_map(|v| v)
+                        .collect::<Vec<String>>()
+                        .join("\n");
+
                     Ok(Some(InfoResponseType::Ns(InfoResponse::new(
                         line.unwrap(),
                         column,
                         file,
                         resource,
-                        format!(
-                            "{}\n{}",
-                            &ns.unwrap_or("".to_string()),
-                            &doc.unwrap_or("".to_string())
-                        ),
+                        docstr,
                     ))))
                 } else {
+                    docstr = vec![
+                        String::from(if is_macro.is_some() { "macro" } else { "" }),
+                        vec![ns, name]
+                            .into_iter()
+                            .flat_map(|v| v)
+                            .collect::<Vec<String>>()
+                            .join("/"),
+                        arglist
+                            .unwrap_or("".to_string())
+                            .split("\n")
+                            .map(|s| format!("({})", s))
+                            .collect::<Vec<String>>()
+                            .join("\n"),
+                        doc.unwrap_or(String::new()),
+                        spec.unwrap_or(String::new()),
+                    ]
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
                     Ok(Some(InfoResponseType::Symbol(InfoResponse::new(
                         line.unwrap(),
                         column,
                         file,
                         resource,
-                        format!(
-                            "{}/{}\n{}\n{}",
-                            &ns.unwrap_or("".to_string()),
-                            &name.unwrap_or("".to_string()),
-                            &arglist
-                                .unwrap_or("".to_string())
-                                .split("\n")
-                                .map(|s| format!("({})", s))
-                                .collect::<Vec<String>>()
-                                .join("\n"),
-                            &doc.unwrap_or("".to_string()),
-                        ),
+                        docstr,
                     ))))
                 }
             }
