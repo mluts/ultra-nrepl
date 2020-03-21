@@ -1,5 +1,5 @@
 [package]
-name = "ultra_nrepl"
+name = "unrepl"
 version = "0.1.0"
 authors = ["Michael Lutsiuk <michael.lutsiuk@gmail.com>"]
 edition = "2018"

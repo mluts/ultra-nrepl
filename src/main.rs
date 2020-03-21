@@ -1,8 +1,8 @@
 use clap::{clap_app, ArgMatches};
-use ultra_nrepl::cmd;
-use ultra_nrepl::nrepl;
-use ultra_nrepl::nrepl::ops;
-use ultra_nrepl::nrepl::NreplOp;
+use unrepl::cmd;
+use unrepl::nrepl;
+use unrepl::nrepl::ops;
+use unrepl::nrepl::NreplOp;
 
 fn nrepl_stream(arg: &ArgMatches) -> nrepl::NreplStream {
     let port = if let Some(port_str) = arg.value_of("PORT") {
@@ -31,7 +31,7 @@ fn show_ns(argm: &ArgMatches, n: &nrepl::NreplStream) {
 }
 
 fn main() {
-    let mut app = clap_app!(ultra_nrepl =>
+    let mut app = clap_app!(unrepl =>
         (version: "0.1")
         (author: "Michael Lutsiuk <michael.lutsiuk@gmail.com>")
         (@arg PORT: +takes_value -p --port "Nrepl port")
@@ -51,7 +51,6 @@ fn main() {
         ("doc", Some(argm)) => cmd::doc::run(&argm, &nrepl_stream),
         ("show_ns", Some(argm)) => show_ns(&argm, &nrepl_stream),
         ("read_jar", Some(argm)) => cmd::read_jar::run(&argm),
-        // ("session_id", Some(_)) => show_session_id(&nrepl_stream),
         _ => {
             app.print_help().unwrap();
             println!("\n")

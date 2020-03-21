@@ -26,7 +26,7 @@ impl From<std::io::Error> for Error {
 pub fn config_path() -> PathBuf {
     let mut dir = dirs::data_local_dir().unwrap();
 
-    dir.push("ultra_nrepl");
+    dir.push("unrepl");
 
     dir
 }

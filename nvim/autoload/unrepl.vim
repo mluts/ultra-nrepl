@@ -1,19 +1,19 @@
-function! ultra_nrepl#GetCmd() abort
-  if !exists('g:ultra_nrepl_cmd')
-    let g:ultra_nrepl_cmd = 'ultra_nrepl'
+function! unrepl#GetCmd() abort
+  if !exists('g:unrepl_cmd')
+    let g:unrepl_cmd = 'unrepl'
   endif
 
-  return expand(g:ultra_nrepl_cmd)
+  return expand(g:unrepl_cmd)
 endfunction
 
-function! ultra_nrepl#FindDef() abort
+function! unrepl#FindDef() abort
   if s:ErrorCheck()
     return
   endif
 
   let symbol = expand('<cword>')
   let fname = expand('%:p')
-  let cmd = ultra_nrepl#GetCmd() . ' find_def ' . fname . ' ' . symbol
+  let cmd = unrepl#GetCmd() . ' find_def ' . fname . ' ' . symbol
   let lines = systemlist(cmd)
 
   for line in lines
@@ -35,7 +35,7 @@ function! ultra_nrepl#FindDef() abort
   " echo [l:file, l:linenum, l:column]
 
   if exists('l:jar')
-    let content_cmd = ultra_nrepl#GetCmd() . ' read_jar ' . l:jar . ' ' . l:file
+    let content_cmd = unrepl#GetCmd() . ' read_jar ' . l:jar . ' ' . l:file
     let contents = systemlist(content_cmd)
 
     let winview = winsaveview()  " Save the current cursor position
@@ -61,7 +61,7 @@ function! s:Warn(msg) abort
 endfunction
 
 function! s:ErrorCheck() abort
-    if !executable(ultra_nrepl#GetCmd())
+    if !executable(unrepl#GetCmd())
         call s:Warn('No racer executable found in $PATH (' . $PATH . ')')
         return 1
     endif
