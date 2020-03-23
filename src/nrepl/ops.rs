@@ -202,7 +202,7 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
 
     fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Self::Error> {
         match n.op(self)? {
-            nrepl::Status::Done(mut resps) => {
+            nrepl::Status::Done(mut resps) | nrepl::Status::State(mut resps) => {
                 let mut resp = resps.pop().unwrap();
                 let line: Option<i64> = get_int_bencode(&mut resp, "line")?;
                 let column: Option<i64> = get_int_bencode(&mut resp, "column")?;
@@ -290,29 +290,41 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
 
 pub struct GetNsName {
     source_path: String,
+    session: String,
 }
 
 impl GetNsName {
-    pub fn new(source_path: String) -> Self {
-        Self { source_path }
+    pub fn new(source_path: String, session: String) -> Self {
+        Self {
+            source_path,
+            session,
+        }
     }
 }
 
 impl From<&GetNsName> for nrepl::Op {
-    fn from(GetNsName { source_path }: &GetNsName) -> nrepl::Op {
+    fn from(
+        GetNsName {
+            source_path,
+            session,
+        }: &GetNsName,
+    ) -> nrepl::Op {
         nrepl::Op::new(
             "eval".to_string(),
-            vec![(
-                "code".to_string(),
-                format!(
-                    "
+            vec![
+                (
+                    "code".to_string(),
+                    format!(
+                        "
              (do
                 (require 'clojure.tools.namespace.file)
                 (nth (clojure.tools.namespace.file/read-file-ns-decl \"{}\") 1)
              )",
-                    source_path
+                        source_path
+                    ),
                 ),
-            )],
+                ("session".to_string(), session.to_string()),
+            ],
         )
     }
 }

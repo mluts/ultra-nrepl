@@ -30,7 +30,7 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
 pub fn run(matches: &ArgMatches, nrepl_stream: &nrepl::NreplStream) {
     let opts = Opts::parse(matches);
     let session = cmd::die_if_err(session::get_existing_session_id(nrepl_stream));
-    let ns = cmd::die_if_err(ops::GetNsName::new(opts.file).send(nrepl_stream));
+    let ns = cmd::die_if_err(ops::GetNsName::new(opts.file, session.clone()).send(nrepl_stream));
     let op = ops::Info::new(session, ns.unwrap(), opts.symbol);
     let res = cmd::die_if_err(op.send(nrepl_stream));
 

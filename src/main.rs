@@ -26,7 +26,8 @@ fn nrepl_stream(arg: &ArgMatches) -> nrepl::NreplStream {
 
 fn show_ns(argm: &ArgMatches, n: &nrepl::NreplStream) {
     let file = argm.value_of("FILE").unwrap();
-    let op = ops::GetNsName::new(file.to_string());
+    let session = cmd::die_if_err(unrepl::nrepl::session::get_existing_session_id(n));
+    let op = ops::GetNsName::new(file.to_string(), session);
     println!("NS: {}", op.send(n).unwrap().unwrap());
 }
 

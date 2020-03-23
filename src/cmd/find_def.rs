@@ -76,7 +76,7 @@ fn parse_file(path: String) -> Result<File, FileError> {
 pub fn run(matches: &ArgMatches, nrepl_stream: &nrepl::NreplStream) {
     let opts = Opts::parse(matches);
     let session = cmd::die_if_err(session::get_existing_session_id(nrepl_stream));
-    let ns = cmd::die_if_err(ops::GetNsName::new(opts.file).send(nrepl_stream));
+    let ns = cmd::die_if_err(ops::GetNsName::new(opts.file, session.clone()).send(nrepl_stream));
 
     if ns.is_none() {
         cmd::die_err("File doesn't have NS declaration");

@@ -9,7 +9,7 @@ use serde_bencode::value::Value as BencodeValue;
 use std::collections::HashMap;
 use std::convert::{From, Into, TryFrom};
 use std::fmt;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Write};
 use std::iter::FromIterator;
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
@@ -30,8 +30,10 @@ pub enum Error {
     ResponseStatusError { status: String },
 }
 
+#[derive(Debug)]
 pub enum Status {
     Done(Vec<Resp>),
+    State(Vec<Resp>),
     NoInfo(Vec<Resp>),
     UnknownOp(String, Vec<Resp>),
     EvalError(Vec<Resp>),
@@ -42,6 +44,7 @@ impl Status {
     pub fn name(&self) -> String {
         match self {
             Self::Done(_) => "done".to_string(),
+            Self::State(_) => "state (cider.nrepl.middleware.track-state)".to_string(),
             Self::NoInfo(_) => "no-info".to_string(),
             Self::EvalError(_) => "eval-error".to_string(),
             Self::UnknownStatus(statuses, _) => statuses.join(","),
@@ -52,6 +55,7 @@ impl Status {
     pub fn into_resps(self) -> Vec<Resp> {
         match self {
             Self::Done(resps) => resps,
+            Self::State(resps) => resps,
             Self::NoInfo(resps) => resps,
             Self::EvalError(resps) => resps,
             Self::UnknownStatus(_, resps) => resps,
@@ -203,6 +207,8 @@ fn parse_resps(resps: Vec<Resp>) -> Result<Status, Error> {
 
             if status == ["done"] {
                 return Ok(Status::Done(resps));
+            } else if status == ["state"] {
+                return Ok(Status::State(resps));
             } else if status == ["eval-error"] {
                 return Ok(Status::EvalError(resps));
             } else if status == ["done", "no-info"] {
@@ -242,9 +248,11 @@ impl NreplStream {
     }
 
     fn read_resp(&self) -> Result<Resp, Error> {
-        let mut deser = serde_bencode::de::Deserializer::new(&self.tcp);
+        let mut r = BufReader::new(&self.tcp);
 
-        let val: BencodeValue = serde::Deserialize::deserialize(&mut deser).unwrap();
+        let mut deser = serde_bencode::de::Deserializer::new(&mut r);
+
+        let val: BencodeValue = serde::Deserialize::deserialize(&mut deser)?;
 
         Ok(TryFrom::try_from(val)?)
     }
@@ -253,7 +261,7 @@ impl NreplStream {
     pub fn op<T: Into<Op>>(&self, op: T) -> Result<Status, Error> {
         let mut resps: Vec<Resp> = vec![];
 
-        self.send_op(op)?;
+        self.send_op(op.into())?;
 
         loop {
             let resp = self.read_resp()?;
