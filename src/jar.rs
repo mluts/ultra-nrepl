@@ -2,6 +2,9 @@ use failure::Error;
 use std::fs::File;
 use std::io::Read;
 
+///! Helpers for dealing with JAR
+
+/// Reads single file from JAR package
 pub fn read_jar_file(jar_path: String, file: String) -> Result<String, Error> {
     let mut out = String::new();
 

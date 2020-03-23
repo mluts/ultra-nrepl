@@ -288,12 +288,14 @@ pub trait NreplOp<T> {
     fn send(&self, nrepl: &NreplStream) -> Result<T, Self::Error>;
 }
 
+/// Check if there's already a port file written by `lein repl` for example
 pub fn default_nrepl_port() -> Option<u32> {
     std::fs::read_to_string(".nrepl-port")
         .ok()
         .and_then(|s| s.parse::<u32>().ok())
 }
 
+/// Returns address of nrepl socket
 pub fn port_addr(port: u32) -> SocketAddr {
     format!("127.0.0.1:{}", port).parse().unwrap()
 }

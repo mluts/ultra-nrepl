@@ -3,17 +3,20 @@ use crate::nrepl;
 use crate::nrepl::NreplOp;
 use failure::{Error as StdError, Fail};
 use fs2::FileExt;
-// use nrepl::ops;
 use nrepl::ops::{CloneSession, LsSessions};
 use serde_bencode::value::Value as BencodeValue;
 use std::collections::HashMap;
 use std::io::{Seek, Write};
 
+///! Module for maintaining persistent session-id within single nrepl connection
+
 #[derive(Debug, Fail)]
 pub enum Error {
     #[fail(display = "io error while managing session data: {}", ioerr)]
+    /// Means that something is wrong when we're reading sessions file
     IOError { ioerr: std::io::Error },
     #[fail(display = "expected session id string, but had: {:?}", bencode)]
+    /// When we've failed to read session from nrepl response (unlikely, but who knows!)
     BadSessionIdValue { bencode: BencodeValue },
     #[fail(display = "config error: {}", cfgerr)]
     ConfigError { cfgerr: config::Error },
@@ -89,6 +92,7 @@ fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool
     Ok(false)
 }
 
+/// Searches for a known session in nrepl otherwise creates a new one
 pub fn get_existing_session_id(n: &nrepl::NreplStream) -> Result<String, StdError> {
     let mb_session_id = load_session_id(n)?;
 
