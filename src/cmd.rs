@@ -3,6 +3,8 @@ pub mod op;
 pub mod doc;
 pub mod read_jar;
 
+///! Helper functions for commandline
+
 pub fn die_err(msg: &str) -> ! {
     eprintln!("{}", msg);
     std::process::exit(1);

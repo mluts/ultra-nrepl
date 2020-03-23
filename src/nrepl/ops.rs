@@ -200,24 +200,34 @@ fn get_str_list_bencode(resp: &mut nrepl::Resp, k: &str) -> Result<Option<Vec<St
 impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
     type Error = StdError;
 
+    // This function is quite bulky, but currently i don't see (or i am not interested in) how to
+    // organize it better.
+    // I wanted to have a greater control under parsing SYMBOL/NS/JavaClass
     fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Self::Error> {
         match n.op(self)? {
             nrepl::Status::Done(mut resps) | nrepl::Status::State(mut resps) => {
                 let mut resp = resps.pop().unwrap();
+                // "line" is required for symbols, but not namespace, TODO: Improve this
                 let line: Option<i64> = get_int_bencode(&mut resp, "line")?;
                 let column: Option<i64> = get_int_bencode(&mut resp, "column")?;
 
+                // It's weird, but valid:
+                // When we received {file: [...]} it means that given given symbol was a java class,
+                // and we have nothing to do with Java Class here.
                 if let Some(v) = resp.get("file") {
                     if let serde_bencode::value::Value::List(_) = v {
                         return Ok(None);
                     }
                 }
 
+                // This is required field, we can't skip it
                 let file: String =
                     get_str_bencode(&mut resp, "file")?.ok_or(Error::FieldNotFound {
                         op: "info".to_string(),
                         field: "file".to_string(),
                     })?;
+
+                // Actually, resource is not mandatory, TODO: Improve this
                 let resource: String =
                     get_str_bencode(&mut resp, "resource")?.ok_or(Error::FieldNotFound {
                         op: "info".to_string(),
@@ -228,11 +238,15 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
                 let name: Option<String> = get_str_bencode(&mut resp, "name")?;
                 let arglist: Option<String> = get_str_bencode(&mut resp, "arglists-str")?;
                 let ns: Option<String> = get_str_bencode(&mut resp, "ns")?;
+                // We are only interested in presence of this field, not it's content
+                // TODO: Check if "macro" could be other than "true"
                 let is_macro: Option<String> = get_str_bencode(&mut resp, "macro")?;
                 let spec: Option<String> =
                     get_str_list_bencode(&mut resp, "spec")?.map(|spec_list| spec_list.join(" "));
                 let docstr: String;
 
+                // There's only single way to distinguish NS from SYMBOL is by absence of
+                // column/name/arglist
                 if line.is_some() && column.is_none() && name.is_none() && arglist.is_none() {
                     docstr = vec![ns, doc]
                         .into_iter()
@@ -247,6 +261,7 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
                         resource,
                         docstr,
                     ))))
+                // Otherwise it's SYMBOL
                 } else {
                     docstr = vec![
                         String::from(if is_macro.is_some() { "macro" } else { "" }),
@@ -280,6 +295,7 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
             }
 
             nrepl::Status::NoInfo(_) => Ok(None),
+
             status => Err(Error::BadStatus {
                 status: status.name(),
             }
@@ -288,6 +304,8 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
     }
 }
 
+/// This OP is for parsing NS name from clojure file using clojure.tools.namespace
+/// Using `eval` OP under hood
 pub struct GetNsName {
     source_path: String,
     session: String,
