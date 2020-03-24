@@ -82,11 +82,6 @@ impl From<RespError> for Error {
     }
 }
 
-pub struct NreplStream {
-    tcp: TcpStream,
-    socket_addr: SocketAddr,
-}
-
 #[derive(Debug)]
 pub struct Op {
     name: String,
@@ -224,31 +219,55 @@ fn parse_resps(resps: Vec<Resp>) -> Result<Status, Error> {
 }
 
 /// It is responsible for communication with nrepl bencode socket
+///
+/// 2020-03-24 Decided to open tcp stream for each OP because it proved to work more reliable
+/// But for sure there are some problems on "nrepl" side
+
+pub struct NreplStream {
+    // tcp: TcpStream,
+    socket_addr: SocketAddr,
+}
 
 impl NreplStream {
-    pub fn connect_timeout(addr: &SocketAddr) -> Result<NreplStream, Error> {
-        let conn = TcpStream::connect_timeout(addr, Duration::new(3, 0))
+    // pub fn connect_timeout(addr: &SocketAddr) -> Result<NreplStream, Error> {
+    //     let conn = TcpStream::connect_timeout(addr, Duration::new(3, 0))
+    //         .and_then(|t| {
+    //             t.set_nonblocking(false)?;
+    //             t.set_read_timeout(Some(Duration::new(5, 0)))?;
+    //             Ok(t)
+    //         })
+    //         .map(|s| NreplStream {
+    //             tcp: s,
+    //             socket_addr: addr.clone(),
+    //         })?;
+    //     Ok(conn)
+    // }
+
+    pub fn new(addr: &SocketAddr) -> Result<NreplStream, Error> {
+        Ok(NreplStream {
+            socket_addr: addr.clone()
+        })
+    }
+
+    fn socket_timeout(&self) -> Result<TcpStream, Error> {
+        TcpStream::connect_timeout(&self.socket_addr, Duration::new(3, 0))
             .and_then(|t| {
                 t.set_nonblocking(false)?;
                 t.set_read_timeout(Some(Duration::new(5, 0)))?;
                 Ok(t)
             })
-            .map(|s| NreplStream {
-                tcp: s,
-                socket_addr: addr.clone(),
-            })?;
-        Ok(conn)
+            .map_err(|e| e.into())
     }
 
-    fn send_op<T: Into<Op>>(&self, op: T) -> Result<(), Error> {
-        let mut bw = BufWriter::new(&self.tcp);
+    fn send_op<T: Into<Op>>(&self, tcp: &TcpStream, op: T) -> Result<(), Error> {
+        let mut bw = BufWriter::new(tcp);
         let bencode = serde_bencode::to_bytes(&op.into())?;
         bw.write(&bencode)?;
         Ok(())
     }
 
-    fn read_resp(&self) -> Result<Resp, Error> {
-        let mut r = BufReader::new(&self.tcp);
+    fn read_resp(&self, tcp: &TcpStream) -> Result<Resp, Error> {
+        let mut r = BufReader::new(tcp);
 
         let mut deser = serde_bencode::de::Deserializer::new(&mut r);
 
@@ -261,10 +280,12 @@ impl NreplStream {
     pub fn op<T: Into<Op>>(&self, op: T) -> Result<Status, Error> {
         let mut resps: Vec<Resp> = vec![];
 
-        self.send_op(op.into())?;
+        let tcp = self.socket_timeout()?;
+
+        self.send_op(&tcp, op.into())?;
 
         loop {
-            let resp = self.read_resp()?;
+            let resp = self.read_resp(&tcp)?;
             let is_final = is_final_resp(&resp);
 
             resps.push(resp);

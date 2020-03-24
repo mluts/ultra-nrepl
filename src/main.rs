@@ -15,7 +15,7 @@ fn nrepl_stream(arg: &ArgMatches) -> nrepl::NreplStream {
     };
 
     if let Some(port) = port {
-        match nrepl::NreplStream::connect_timeout(&nrepl::port_addr(port)) {
+        match nrepl::NreplStream::new(&nrepl::port_addr(port)) {
             Ok(nrepl) => nrepl,
             Err(e) => cmd::die_err(&format!("Failed to connect to nrepl: {}", e)),
         }
