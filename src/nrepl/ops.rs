@@ -2,6 +2,8 @@ use crate::bencode as bc;
 use crate::nrepl;
 use failure::{Error as StdError, Fail};
 use serde::Serialize;
+use serde_bencode::value::Value as BencodeValue;
+use std::collections::HashSet;
 use std::convert::From;
 
 #[derive(Debug, Fail)]
@@ -17,6 +19,8 @@ pub enum Error {
     FieldNotFound { op: String, field: String },
     #[fail(display = "Unexpected nrepl status: {}", status)]
     BadStatus { status: String },
+    #[fail(display = "Having two 'ops' dicts in response to 'describe' op")]
+    DuplicatedOpsInResponse,
 }
 
 pub struct CloneSession {
@@ -361,6 +365,71 @@ impl nrepl::NreplOp<Option<String>> for GetNsName {
                     }
                 }
                 Ok(value)
+            }
+
+            status => Err(Error::BadStatus {
+                status: status.name(),
+            }
+            .into()),
+        }
+    }
+}
+
+pub struct Describe {
+    verbose: bool,
+}
+
+impl Describe {
+    pub fn new(verbose: bool) -> Self {
+        Self { verbose }
+    }
+}
+
+pub struct DescribeResp {
+    ops: HashSet<String>,
+}
+
+impl DescribeResp {
+    pub fn ops(&self) -> &HashSet<String> {
+        &self.ops
+    }
+}
+
+impl From<&Describe> for nrepl::Op {
+    fn from(Describe { verbose }: &Describe) -> nrepl::Op {
+        let mut args: Vec<(String, String)> = vec![];
+        if *verbose {
+            args.push(("verbose?".to_string(), "true".to_string()));
+        }
+        nrepl::Op::new("describe".to_string(), args)
+    }
+}
+
+impl nrepl::NreplOp<DescribeResp> for Describe {
+    type Error = StdError;
+
+    fn send(&self, n: &nrepl::NreplStream) -> Result<DescribeResp, Self::Error> {
+        match n.op(self)? {
+            nrepl::Status::Done(resps) | nrepl::Status::State(resps) => {
+                let mut ops: Option<HashSet<String>> = None;
+
+                for mut resp in resps {
+                    if let Some(json_val) = resp.remove("ops") {
+                        if let BencodeValue::Dict(ops_map) = json_val {
+                            if ops.is_some() {
+                                return Err(Error::DuplicatedOpsInResponse.into());
+                            }
+                            ops = Some(
+                                ops_map
+                                    .into_iter()
+                                    .map(|(k, _)| String::from_utf8(k).map_err(|e| e.into()))
+                                    .collect::<Result<HashSet<String>, Self::Error>>()?,
+                            );
+                        }
+                    }
+                }
+
+                Ok(DescribeResp { ops: ops.unwrap() })
             }
 
             status => Err(Error::BadStatus {
