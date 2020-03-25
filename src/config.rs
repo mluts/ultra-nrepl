@@ -2,6 +2,7 @@ use failure::Error as StdError;
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection, OptionalExtension, NO_PARAMS};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::convert::From;
 use std::path::PathBuf;
 
@@ -121,7 +122,7 @@ pub fn ensure_migrations() -> Result<(), StdError> {
     })
 }
 
-pub fn save_session(session: Session) -> Result<(), StdError> {
+pub fn save_session(session: &Session) -> Result<(), StdError> {
     DB.with(|conn| {
         let conn = conn.borrow();
 
@@ -129,7 +130,16 @@ pub fn save_session(session: Session) -> Result<(), StdError> {
             "INSERT OR REPLACE
             INTO sessions (addr, session_id, ops_list)
             VALUES (?1, ?2, ?3)",
-            params![session.addr, session.session, session.ops.join(",")],
+            params![
+                session.addr,
+                session.session,
+                session
+                    .ops
+                    .clone()
+                    .into_iter()
+                    .collect::<Vec<String>>()
+                    .join(",")
+            ],
         )?;
 
         Ok(())
@@ -161,17 +171,23 @@ pub fn load_session(addr: String) -> Result<Option<Session>, StdError> {
     })
 }
 
+#[derive(Debug, Clone)]
 pub struct Session {
     addr: String,
     session: String,
-    ops: Vec<String>,
+    ops: HashSet<String>,
 }
 
 impl Session {
-    pub fn new(addr: String, session: String, ops: Vec<String>) -> Self {
+    pub fn new(addr: String, session: String, ops: HashSet<String>) -> Self {
         Self { addr, session, ops }
     }
-    pub fn session(&self) -> String {
+
+    pub fn id(&self) -> String {
         self.session.to_string()
+    }
+
+    pub fn is_op_available(&self, op: &str) -> bool {
+        self.ops.contains(op)
     }
 }

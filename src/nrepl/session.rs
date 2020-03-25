@@ -1,8 +1,9 @@
 use crate::config;
+use crate::config::Session;
 use crate::nrepl;
 use crate::nrepl::NreplOp;
 use failure::{Error as StdError, Fail};
-use nrepl::ops::{CloneSession, LsSessions};
+use nrepl::ops::{CloneSession, Describe, LsSessions};
 use serde_bencode::value::Value as BencodeValue;
 
 ///! Module for maintaining persistent session-id within single nrepl connection
@@ -31,22 +32,15 @@ impl From<config::Error> for Error {
     }
 }
 
-fn create_session(nrepl: &nrepl::NreplStream) -> Result<String, StdError> {
-    let op = CloneSession::new(None);
+fn create_session(nrepl: &nrepl::NreplStream) -> Result<Session, StdError> {
+    let id = CloneSession::new(None).send(nrepl)?;
+    let describe = Describe::new(false).send(nrepl)?;
 
-    Ok(op.send(nrepl)?)
-}
-
-fn save_session_id(n: &nrepl::NreplStream, session_id: &String) -> Result<(), StdError> {
-    let session = config::Session::new(n.addr_string(), session_id.clone(), vec![]);
-    config::save_session(session)?;
-
-    Ok(())
-}
-
-fn load_session_id(n: &nrepl::NreplStream) -> Result<Option<String>, StdError> {
-    let mb_session = config::load_session(n.addr_string())?.map(|s| s.session());
-    Ok(mb_session)
+    Ok(Session::new(
+        nrepl.addr_string(),
+        id,
+        describe.into_ops().into_iter().collect(),
+    ))
 }
 
 fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool, StdError> {
@@ -62,18 +56,18 @@ fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool
 }
 
 /// Searches for a known session in nrepl otherwise creates a new one
-pub fn get_existing_session_id(n: &nrepl::NreplStream) -> Result<String, StdError> {
-    let mb_session_id = load_session_id(n)?;
+pub fn get_existing_session_id(n: &nrepl::NreplStream) -> Result<Session, StdError> {
+    let mb_session = config::load_session(n.addr_string())?;
 
-    if let Some(existing_session_id) = mb_session_id {
-        if session_id_exists(n, &existing_session_id)? {
-            return Ok(existing_session_id);
+    if let Some(existing_session) = mb_session {
+        if session_id_exists(n, &existing_session.id())? {
+            return Ok(existing_session);
         }
     }
 
-    let new_session_id = create_session(n)?;
+    let new_session = create_session(n)?;
 
-    save_session_id(n, &new_session_id)?;
+    config::save_session(&new_session)?;
 
-    Ok(new_session_id)
+    Ok(new_session)
 }

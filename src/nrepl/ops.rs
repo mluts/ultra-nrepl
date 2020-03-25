@@ -1,4 +1,5 @@
 use crate::bencode as bc;
+use crate::config::Session;
 use crate::nrepl;
 use failure::{Error as StdError, Fail};
 use serde::Serialize;
@@ -21,6 +22,8 @@ pub enum Error {
     BadStatus { status: String },
     #[fail(display = "Having two 'ops' dicts in response to 'describe' op")]
     DuplicatedOpsInResponse,
+    #[fail(display = "'info' op is not available")]
+    InfoOpUnavailable,
 }
 
 pub struct CloneSession {
@@ -111,7 +114,7 @@ impl nrepl::NreplOp<Vec<String>> for LsSessions {
 pub struct Info {
     ns: String,
     symbol: String,
-    session: String,
+    session: Session,
 }
 
 #[derive(Debug, Serialize)]
@@ -150,7 +153,7 @@ impl InfoResponse {
 }
 
 impl Info {
-    pub fn new(session: String, ns: String, symbol: String) -> Self {
+    pub fn new(session: Session, ns: String, symbol: String) -> Self {
         Self {
             session,
             ns,
@@ -172,7 +175,7 @@ impl From<&Info> for nrepl::Op {
             vec![
                 ("symbol".to_string(), symbol.to_string()),
                 ("ns".to_string(), ns.to_string()),
-                ("session".to_string(), session.to_string()),
+                ("session".to_string(), session.id()),
             ],
         )
     }
@@ -208,6 +211,10 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
     // organize it better.
     // I wanted to have a greater control under parsing SYMBOL/NS/JavaClass
     fn send(self: &Info, n: &nrepl::NreplStream) -> Result<Option<InfoResponseType>, Self::Error> {
+        if !self.session.is_op_available("info") {
+            return Err(Error::InfoOpUnavailable.into());
+        }
+
         match n.op(self)? {
             nrepl::Status::Done(mut resps) | nrepl::Status::State(mut resps) => {
                 let mut resp = resps.pop().unwrap();
@@ -312,11 +319,11 @@ impl nrepl::NreplOp<Option<InfoResponseType>> for Info {
 /// Using `eval` OP under hood
 pub struct GetNsName {
     source_path: String,
-    session: String,
+    session: Session,
 }
 
 impl GetNsName {
-    pub fn new(source_path: String, session: String) -> Self {
+    pub fn new(source_path: String, session: Session) -> Self {
         Self {
             source_path,
             session,
@@ -345,7 +352,7 @@ impl From<&GetNsName> for nrepl::Op {
                         source_path
                     ),
                 ),
-                ("session".to_string(), session.to_string()),
+                ("session".to_string(), session.id()),
             ],
         )
     }
@@ -392,6 +399,10 @@ pub struct DescribeResp {
 impl DescribeResp {
     pub fn ops(&self) -> &HashSet<String> {
         &self.ops
+    }
+
+    pub fn into_ops(self) -> HashSet<String> {
+        self.ops
     }
 }
 
