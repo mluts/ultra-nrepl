@@ -8,3 +8,4 @@
 - [ ] Unused vars warning
 - [ ] Undefined var warning
 - [ ] Undefined ns warning
+- [ ] Interactive REPL
