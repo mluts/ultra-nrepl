@@ -2,7 +2,6 @@ use failure::Error as StdError;
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection, OptionalExtension, NO_PARAMS};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::convert::From;
 use std::path::PathBuf;
 

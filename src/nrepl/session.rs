@@ -2,11 +2,8 @@ use crate::config;
 use crate::nrepl;
 use crate::nrepl::NreplOp;
 use failure::{Error as StdError, Fail};
-use fs2::FileExt;
 use nrepl::ops::{CloneSession, LsSessions};
 use serde_bencode::value::Value as BencodeValue;
-use std::collections::HashMap;
-use std::io::{Seek, Write};
 
 ///! Module for maintaining persistent session-id within single nrepl connection
 
