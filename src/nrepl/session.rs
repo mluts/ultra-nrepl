@@ -41,43 +41,15 @@ fn create_session(nrepl: &nrepl::NreplStream) -> Result<String, StdError> {
 }
 
 fn save_session_id(n: &nrepl::NreplStream, session_id: &String) -> Result<(), StdError> {
-    config::ensure_config_dir()?;
-
-    let mut f = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(config::sessions_path())?;
-
-    f.lock_exclusive()?;
-
-    let mut sessions = config::parse_sessions(&mut f)?;
-
-    sessions.insert(n.addr_string(), session_id.clone());
-
-    f.set_len(0)?;
-    f.seek(std::io::SeekFrom::Start(0))?;
-    f.write(&serde_json::to_string(&sessions)?.into_bytes())?;
+    let session = config::Session::new(n.addr_string(), session_id.clone(), vec![]);
+    config::save_session(session)?;
 
     Ok(())
 }
 
-fn load_session_id(n: &nrepl::NreplStream) -> Result<Option<String>, Error> {
-    let sid = std::fs::File::open(config::sessions_path())
-        .and_then(|mut f| {
-            if f.metadata()?.len() > 0 {
-                let mut sessions: HashMap<String, String> = serde_json::from_reader(&mut f)?;
-                Ok(sessions.remove(&n.addr_string()))
-            } else {
-                Ok(None)
-            }
-        })
-        .or_else(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => Ok(None),
-            _ => Err(e),
-        })?;
-
-    Ok(sid)
+fn load_session_id(n: &nrepl::NreplStream) -> Result<Option<String>, StdError> {
+    let mb_session = config::load_session(n.addr_string())?.map(|s| s.session());
+    Ok(mb_session)
 }
 
 fn session_id_exists(n: &nrepl::NreplStream, session_id: &String) -> Result<bool, StdError> {

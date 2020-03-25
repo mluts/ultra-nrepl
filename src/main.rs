@@ -32,6 +32,9 @@ fn show_ns(argm: &ArgMatches, n: &nrepl::NreplStream) {
 }
 
 fn main() {
+    unrepl::config::ensure_config_dir().unwrap();
+    unrepl::config::ensure_migrations().unwrap();
+
     let mut app = clap_app!(unrepl =>
         (version: "0.1")
         (author: "Michael Lutsiuk <michael.lutsiuk@gmail.com>")
